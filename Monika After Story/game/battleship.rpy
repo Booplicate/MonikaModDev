@@ -131,7 +131,7 @@ init python in mas_battleship:
                     y,
                     self.CELL_WIDTH,
                     self.CELL_HEIGHT * ship_length + self.INNER_GRID_THICKNESS * (ship_length - 1),
-                    return_value=ship
+                    return_value=ship,
                 )
                 ship_button._button_down = pygame.MOUSEBUTTONDOWN
                 self._ship_buttons.append(ship_button)
@@ -194,23 +194,23 @@ init python in mas_battleship:
             """
             # NOTE: Sprites are headed up, but in our system 0 degrees is right, NOT up
             # so we need to adjust the angle to avoid rotation
-            _angle = ship.orientation - Ship.Orientation.UP
-            _sprite = self.SHIP_SPRITES_MAP[ship.length]
-            _key = (ship.length, ship.orientation)
+            angle = ship.orientation - Ship.Orientation.UP
+            sprite = self.SHIP_SPRITES_MAP[ship.length]
+            key = (ship.length, ship.orientation)
 
-            if _key not in self._ship_sprites_cache:
-                self._ship_sprites_cache[_key] = Transform(
-                    child=_sprite,
+            if key not in self._ship_sprites_cache:
+                self._ship_sprites_cache[key] = Transform(
+                    child=sprite,
                     xanchor=0.5,
                     yanchor=16,
                     offset=(16, 16),
                     transform_anchor=True,
                     rotate_pad=False,
                     subpixel=True,
-                    rotate=_angle,
+                    rotate=angle,
                 )
 
-            return self._ship_sprites_cache[_key]
+            return self._ship_sprites_cache[key]
 
         def render(self, width, height, st, at):
             """
@@ -314,19 +314,125 @@ init python in mas_battleship:
         #     """
         #     return
 
-        def _handle_buttons_events(self, ev, x, y, st):
+        def _handle_ship_buttons_events(self, ev, x, y, st):
             """
             Checks if the player pressed one of the ship building buttons
             """
-            if self._phase == self.GamePhase.PREPARING:
-                for ship_button in self._ship_buttons:
-                    ship = ship_button.event(ev, x, y, st)
-                    if ship is not None:
-                        drag_point = (y - self.TRACKING_GRID_ORIGIN_Y) / (self.CELL_HEIGHT + self.INNER_GRID_THICKNESS)
-                        self._dragged_ship = ship.copy()
-                        self._dragged_ship.drag_coords = (0, drag_point)
-                        return True
+            for ship_button in self._ship_buttons:
+                ship = ship_button.event(ev, x, y, st)
+                if ship is not None:
+                    drag_point = (y - self.TRACKING_GRID_ORIGIN_Y) / (self.CELL_HEIGHT + self.INNER_GRID_THICKNESS)
+                    self._dragged_ship = ship.copy()
+                    self._dragged_ship.drag_coords = (0, drag_point)
+                    return True
             return False
+
+        def _handle_preparing_events(self, ev, x, y, st):
+            # # # Check if the player wants to build a ship
+            if self._handle_ship_buttons_events(ev, x, y, st):
+                # We handle buttons' events in the method above
+                renpy.redraw(self, 0)
+
+            # # # The player pressed the rotation key
+            elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_r:
+                # If the player's dragging a ship, rotate it
+                if self._dragged_ship is not None:
+                    if ev.mod in (pygame.KMOD_LSHIFT, pygame.KMOD_RSHIFT):
+                        self._dragged_ship.orientation -= 90
+                    else:
+                        self._dragged_ship.orientation += 90
+
+                    self._grid_conflicts[:] = self._player.grid.get_conflicts()
+                    renpy.redraw(self, 0)
+
+                # If the player's pressed the keybinding for rotating while hovering over a ship, rotate it
+                else:
+                    coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                    if coords is None:
+                        return
+
+                    ship = self._player.grid.get_ship_at(coords[0], coords[1])
+                    if ship is None:
+                        return
+
+                    if ev.mod in (pygame.KMOD_LSHIFT, pygame.KMOD_RSHIFT):
+                        angle = -90
+                    else:
+                        angle = 90
+
+                    self._player.grid.remove_ship(ship)
+                    ship.rotate(angle, coords[0], coords[1])
+                    self._player.grid.place_ship(ship)
+                    self._grid_conflicts[:] = self._player.grid.get_conflicts()
+
+                    renpy.redraw(self, 0)
+
+            # # # The player moves the mouse, we may need to update the screen
+            elif ev.type == pygame.MOUSEMOTION:
+                # Continue to update the screen while the player's dragging a ship
+                if self._dragged_ship is not None:
+                    renpy.redraw(self, 0)
+
+            # # # The player clicks on a ship and starts dragging it
+            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                if coords is None:
+                    return
+
+                ship = self._player.grid.get_ship_at(coords[0], coords[1])
+                if ship is None:
+                    return
+
+                self._player.grid.remove_ship(ship)
+                self._grid_conflicts[:] = self._player.grid.get_conflicts()
+                ship.drag_coords = coords
+                self._dragged_ship = ship
+
+                renpy.redraw(self, 0)
+
+            # # # The player releases the mouse button and places the ship on the grid
+            elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
+                if self._dragged_ship is None:
+                    return
+
+                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                if coords is not None:
+                    # Let's get dragging offsets
+                    if Ship.Orientation.is_vertical(self._dragged_ship.orientation):
+                        x_offset = 0
+                        y_offset = self._dragged_ship.get_drag_offset_from_bow()
+
+                    else:
+                        x_offset = self._dragged_ship.get_drag_offset_from_bow()
+                        y_offset = 0
+
+                    # Repack the tuple appying the offsets
+                    coords = (coords[0] + x_offset, coords[1] + y_offset)
+                    # Set new coords for the ship
+                    self._dragged_ship.bow_coords = coords
+                    # Reset drag point
+                    self._dragged_ship.drag_coords = coords
+                    # Finally place it
+                    self._player.grid.place_ship(self._dragged_ship)
+                    # Check for invalid placement
+                    self._grid_conflicts[:] = self._player.grid.get_conflicts()
+
+                # NOTE: set to None anyway if the player just wanted to remove the ship
+                self._dragged_ship = None
+                renpy.redraw(self, 0)
+
+        def _handle_playing_events(self, ev, x, y, st):
+            # # # The player moves the mouse, we may need to update the screen
+            if ev.type == pygame.MOUSEMOTION:
+                coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+
+                # Ask to redraw if we either just started hover or stopped
+                if (
+                    coords is not None
+                    or self._hovered_cell is not None
+                ):
+                    self._hovered_cell = coords
+                    renpy.redraw(self, 0)
 
         def event(self, ev, x, y, st):
             """
@@ -336,112 +442,11 @@ init python in mas_battleship:
             self._last_mouse_x = x
             self._last_mouse_y = y
 
-            # Check if the player wants to build a ship
-            if self._handle_buttons_events(ev, x, y, st):
-                # We handle buttons' events in the method above
-                renpy.redraw(self, 0)
+            if self._phase == self.GamePhase.PREPARING:
+                self._handle_preparing_events(ev, x, y, st)
 
-            # # # The player pressed the rotation key
-            elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_r:
-                if self._phase == self.GamePhase.PREPARING:
-                    # If the player's dragging a ship, rotate it
-                    if self._dragged_ship is not None:
-                        if ev.mod in (pygame.KMOD_LSHIFT, pygame.KMOD_RSHIFT):
-                            self._dragged_ship.orientation -= 90
-
-                        else:
-                            self._dragged_ship.orientation += 90
-
-                        self._grid_conflicts[:] = self._player.grid.get_conflicts()
-                        renpy.redraw(self, 0)
-
-                    # If the player's pressed the keybinding for rotating while hovering over a ship, rotate it
-                    else:
-                        coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
-
-                        if coords is not None:
-                            ship = self._player.grid.get_ship_at(coords[0], coords[1])
-
-                            if ship is not None:
-                                if ev.mod in (pygame.KMOD_LSHIFT, pygame.KMOD_RSHIFT):
-                                    angle = -90
-
-                                else:
-                                    angle = 90
-
-                                self._player.grid.remove_ship(ship)
-                                ship.rotate(angle, coords[0], coords[1])
-                                self._player.grid.place_ship(ship)
-                                self._grid_conflicts[:] = self._player.grid.get_conflicts()
-
-                                renpy.redraw(self, 0)
-
-            # # # The player moves the mouse, we may need to update the screen
-            elif ev.type == pygame.MOUSEMOTION:
-                if self._phase == self.GamePhase.PLAYING:
-                    coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
-
-                    # Ask to redraw if we either just started hover or stopped
-                    if (
-                        coords is not None
-                        or self._hovered_cell is not None
-                    ):
-                        self._hovered_cell = coords
-                        renpy.redraw(self, 0)
-
-                # Continue to update the screen while the player's dragging a ship
-                elif (
-                    self._phase == self.GamePhase.PREPARING
-                    and self._dragged_ship is not None
-                ):
-                    renpy.redraw(self, 0)
-
-            # # # The player clicks on a ship and starts dragging it
-            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
-                if self._phase == self.GamePhase.PREPARING:
-                    coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
-
-                    if coords is not None:
-                        ship = self._player.grid.get_ship_at(coords[0], coords[1])
-
-                        if ship is not None:
-                            self._player.grid.remove_ship(ship)
-                            self._grid_conflicts[:] = self._player.grid.get_conflicts()
-                            ship.drag_coords = coords
-                            self._dragged_ship = ship
-
-                            renpy.redraw(self, 0)
-
-            # # # The player releases the mouse button and places the ship on the grid
-            elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
-                if self._phase == self.GamePhase.PREPARING:
-                    if self._dragged_ship is not None:
-                        coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
-
-                        if coords is not None:
-                            # Let's get dragging offsets
-                            if Ship.Orientation.is_vertical(self._dragged_ship.orientation):
-                                x_offset = 0
-                                y_offset = self._dragged_ship.get_drag_offset_from_bow()
-
-                            else:
-                                x_offset = self._dragged_ship.get_drag_offset_from_bow()
-                                y_offset = 0
-
-                            # Repack the tuple appying the offsets
-                            coords = (coords[0] + x_offset, coords[1] + y_offset)
-                            # Set new coords for the ship
-                            self._dragged_ship.bow_coords = coords
-                            # Reset drag point
-                            self._dragged_ship.drag_coords = coords
-                            # Finally place it
-                            self._player.grid.place_ship(self._dragged_ship)
-                            # Check for invalid placement
-                            self._grid_conflicts[:] = self._player.grid.get_conflicts()
-
-                        # Set to None anyway if the player just wanted to remove the ship
-                        self._dragged_ship = None
-                        renpy.redraw(self, 0)
+            elif self._phase == self.GamePhase.PLAYING:
+                self._handle_playing_events(ev, x, y, st)
 
             # raise renpy.IgnoreEvent()
             return
@@ -471,34 +476,41 @@ init python in mas_battleship:
             """
             Constructor
             """
-            self._grid = {
+            # Coordinates: cell state
+            self._cell_states = {
                 (col, row): self.CellState.EMPTY
                 for row in range(self.HEIGHT)
                 for col in range(self.WIDTH)
             }
-            self._ship_map = {coords: [] for coords in self._grid.iterkeys()}
-            self._ship_list = []
+            # Coordinates: ships
+            self._ships_grid = {coords: [] for coords in self._cell_states.iterkeys()}
+            # All ships on the grid
+            self._ships = []
+
+        @property
+        def total_ships(self):
+            return len(self._ships)
 
         def iter_ships(self):
             """
             Returns an iterator over the ships on this grid
             """
-            return iter(self._ship_list)
+            return iter(self._ships)
 
         def clear(self, clear_grid=True, clear_map=True):
             """
             Clears this grid
             """
             if clear_grid:
-                for coords in self._grid:
-                    self._grid[coords] = self.CellState.EMPTY
+                for coords in self._cell_states:
+                    self._cell_states[coords] = self.CellState.EMPTY
 
             if clear_map:
-                for _ship_list in self._ship_map.itervalues():
-                    _ship_list[:] = []
+                for ships in self._ships_grid.itervalues():
+                    ships[:] = []
 
                 # If we clear the map, we must clear the main list too
-                self._ship_list[:] = []
+                self._ships[:] = []
 
         def _is_within(self, x, y):
             """
@@ -525,7 +537,7 @@ init python in mas_battleship:
                 int as one of states,
                 or None if the given coordinates are out of this grid
             """
-            return self._grid.get((x, y), None)
+            return self._cell_states.get((x, y), None)
 
         def _is_empty_at(self, x, y):
             """
@@ -565,14 +577,14 @@ init python in mas_battleship:
                 y - y coord
                 value - new state for the cell
             """
-            _key = (x, y)
+            coords = (x, y)
             if (
-                _key not in self._grid
+                coords not in self._cell_states
                 or value not in self.CellState.get_all()
             ):
                 return
 
-            self._grid[_key] = value
+            self._cell_states[coords] = value
 
         def get_ship_at(self, x, y):
             """
@@ -588,7 +600,7 @@ init python in mas_battleship:
             OUT:
                 Ship object or None if nothing found
             """
-            ships = self._ship_map.get((x, y), None)
+            ships = self._ships_grid.get((x, y), None)
             if ships:
                 return ships[-1]
 
@@ -603,7 +615,7 @@ init python in mas_battleship:
             """
             return [
                 coords
-                for coords, cell_state in self._grid.iteritems()
+                for coords, cell_state in self._cell_states.iteritems()
                 if cell_state == self.CellState.CONFLICT
             ]
 
@@ -613,7 +625,7 @@ init python in mas_battleship:
             """
             self.clear(clear_map=False)
 
-            for ship in self._ship_list:
+            for ship in self._ships:
                 self.place_ship(ship, add_to_map=False)
 
         def remove_ship(self, ship):
@@ -623,12 +635,12 @@ init python in mas_battleship:
             IN:
                 ship - ship to remove
             """
-            for _ship_list in self._ship_map.itervalues():
-                if ship in _ship_list:
-                    _ship_list.remove(ship)
+            for ships in self._ships_grid.itervalues():
+                if ship in ships:
+                    ships.remove(ship)
 
-            if ship in self._ship_list:
-                self._ship_list.remove(ship)
+            if ship in self._ships:
+                self._ships.remove(ship)
 
             self.update()
 
@@ -775,8 +787,8 @@ init python in mas_battleship:
 
                 if add_to_map:
                     # If the ship was placed incorrectly, then its coords may be out of this grid
-                    if cell in self._ship_map:
-                        self._ship_map[cell].append(ship)
+                    if cell in self._ships_grid:
+                        self._ships_grid[cell].append(ship)
 
             for cell in spacing_cells:
                 if self._is_empty_or_spacing_at(cell[0], cell[1]):
@@ -789,7 +801,7 @@ init python in mas_battleship:
 
             if add_to_map:
                 # Also add to the main list
-                self._ship_list.append(ship)
+                self._ships.append(ship)
 
         def place_ships(self, ships):
             """
