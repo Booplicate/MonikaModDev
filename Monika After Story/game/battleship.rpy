@@ -579,6 +579,22 @@ init python in mas_battleship:
             # but this could cause problems with rollback
             return rv
 
+        def visit(self):
+            return [
+                self.GRID_BACKGROUND,
+                self.GRID_FRAME,
+                self.GRID,
+                self.WATER_LAYER,
+                self.CELL_HOVER,
+                self.CELL_CONFLICT,
+                self.CELL_HIT
+                self.CELL_MISS
+                self.SHIP_5_SQUARES
+                self.SHIP_4_SQUARES
+                self.SHIP_3_SQUARES
+                self.SHIP_2_SQUARES
+            ]
+
     class Grid(object):
         """
         Represents a field/screen for battleship placement
