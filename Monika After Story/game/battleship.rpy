@@ -1,59 +1,115 @@
 init 999 python:
+    # config.per_frame_screens.append("_trace_screen")
     mas_enable_quit()
+
+screen mas_battleship_ui(game):
+    add game
+
+label mas_battleship_game_start:
+    window hide
+    $ HKBHideButtons()
+    $ disable_esc()
+
+    $ mas_battleship.game = mas_battleship.Battleship()
+    $ mas_battleship.game.build_and_place_player_ships()
+    # FIXME: this is temp
+    # $ mas_battleship.game._phase = mas_battleship.game.GamePhase.ACTION
+
+    show monika at t31
+    show screen mas_battleship_ui(mas_battleship.game)
+
+    # FALL THROUGH
+
+label mas_battleship_game_loop:
+    while not mas_battleship.game.has_ended():
+        $ ui.interact()
+
+    pause 3.0
+    # FALL THROUGH
+
+label mas_battleship_game_end:
+    hide screen mas_battleship_ui
+    show monika at t11
+
+    $ enable_esc()
+    $ HKBShowButtons()
+    window auto
+
+    if mas_battleship.game.is_player_winner():
+        m 1hub "Congrats! ^^"
+
+    else:
+        m 1euu "Better luck next time :P"
+
+    $ mas_battleship.game = None
+
+    return
+
+
+transform mas_battleship_water_transform(width, height):
+    animation
+
+    subpixel True
+    anchor (0.0, 0.0)
+
+    block:
+        crop (0, 0, width//2, height//2)
+        linear 30.0 crop (width//8, height//16, width//2, height//2)
+        warp mas_battleship._water_transform_warper 70.0 crop (width//2, height//2, width//2, height//2)
+        repeat
+
+
+init -50 python in mas_battleship:
+    import math
+
+    # @renpy.atl_warper
+    def _water_transform_warper(t):
+        """
+        Custom warper for time interpolation
+        Based on: https://easings.net/#easeInOutBack
+        Graph: https://www.desmos.com/calculator/eocmyw2bzw
+        """
+        # c1 = -2.8
+        c1 = -3.8
+        c2 = c1 * 1.525
+
+        if t < 0.5:
+            return (math.pow(2*t, 2) * ((c2 + 1)*2*t - c2)) / 2.0
+
+        else:
+            return (math.pow(2*t - 2, 2) * ((c2 + 1)*(t*2 - 2) + c2) + 2) / 2.0
 
 init python in mas_battleship:
     import random
     import pygame
     import math as meth
     import itertools
-    from store import Image, Null, Transform, MASButtonDisplayable
-    from collections import OrderedDict
-    from renpy import config
 
-    # a = mas_battleship.Battleship()
-    # renpy.show("monika 3hub", at_list=[tcommon(220)]); ui.add(mas_battleship.Battleship()); ui.interact()
-    # renpy.show("monika 1eua", at_list=[t31]); ui.add(mas_battleship.Battleship()); renpy.say(m, "<3")
-    # a = mas_battleship.Battleship(); renpy.show("monika 1eua", at_list=[t31]); ui.add(a); renpy.say(m, "<3", False); ui.interact()
+    from collections import OrderedDict
+    from renpy import (
+        store,
+        config,
+    )
+    from store import (
+        Image,
+        Null,
+        Transform,
+        MASButtonDisplayable,
+    )
+
+    # The game object, will be set on game start
+    game = None
 
     class Battleship(renpy.display.core.Displayable):
         """
+        Event handler, render, and main logic for the game
         """
-        # Grid sprites
-        # MAIN_GRID = Image("/mod_assets/games/battleship/grid.png")
-        # TRACKING_GRID = Image("/mod_assets/games/battleship/grid.png")
-        GRID_BASE = Image("/mod_assets/games/battleship/grid_base.png")
-        GRID = Image("/mod_assets/games/battleship/grid.png")
-
-        # Marks sprites
-        HIT_MARK = Image("/mod_assets/games/battleship/hit_mark.png")
-        MISS_MARK = Image("/mod_assets/games/battleship/miss_mark.png")
-
-        # Ships sprites
-        # TODO: sprites for broken/sunk ships?
-        SHIP_5_SQUARES = Image("/mod_assets/games/battleship/ship_5_squares.png")
-        SHIP_4_SQUARES = Image("/mod_assets/games/battleship/ship_4_squares.png")
-        SHIP_3_SQUARES = Image("/mod_assets/games/battleship/ship_3_squares.png")
-        SHIP_2_SQUARES = Image("/mod_assets/games/battleship/ship_2_squares.png")
-
-        ALL_SHIP_SPRITES = (SHIP_5_SQUARES, SHIP_4_SQUARES, SHIP_3_SQUARES, SHIP_2_SQUARES)
-
-        ALL_SHIPS_TYPES = (5, 4, 3, 2)
-
-        SHIP_SET_CLASSIC = (5, 4, 4, 3, 3, 3, 2, 2, 2, 2)
-
-        # Map between ship types and sprites
-        # TODO: support multiple sprites for one ship type?
-        SHIP_SPRITES_MAP = OrderedDict(zip(ALL_SHIPS_TYPES, ALL_SHIP_SPRITES))
-
-        # Hovering mask
-        CELL_HOVER = Image("/mod_assets/games/battleship/square_hover.png")
-        # Error mask
-        CELL_ERROR = Image("/mod_assets/games/battleship/square_error.png")
-
-        # Size + coords constants
+        ### Size and coords constants
         GRID_HEIGHT = 378
         GRID_WIDTH = GRID_HEIGHT
         GRID_SPACING = 5
+
+        # PLAYER_FIELD_SIZE = 338
 
         CELL_HEIGHT = 32
         CELL_WIDTH = CELL_HEIGHT
@@ -66,13 +122,60 @@ init python in mas_battleship:
         TRACKING_GRID_ORIGIN_X = config.screen_width - GRID_WIDTH - GRID_SPACING
         TRACKING_GRID_ORIGIN_Y = (config.screen_height - GRID_HEIGHT) // 2
 
+        ### Grid sprites
+        GRID_BACKGROUND = Image("/mod_assets/games/battleship/grid/background.png")
+        GRID_FRAME = Image("/mod_assets/games/battleship/grid/frame.png")
+        GRID = Image("/mod_assets/games/battleship/grid/grid.png")
+
+        # HACK: The animated sprite is blinking at the edges, probably due to incorrect blitting and pixel smudging
+        # I come up with a hack: we render this layer 2px bigger and overlap its edges with the grid frame
+        HACK_WATER_LAYER_OFFSET = 2
+
+        WATER_LAYER = store.Transform(
+            store.mas_battleship_water_transform(
+                child=Image("/mod_assets/games/battleship/water_loop.png"),
+                width=1024,
+                height=1024,
+            ),
+            # TODO: replace with xysize in r8
+            size=(GRID_HEIGHT - OUTER_FRAME_THICKNESS*2 + HACK_WATER_LAYER_OFFSET*2, GRID_WIDTH - OUTER_FRAME_THICKNESS*2 + HACK_WATER_LAYER_OFFSET*2),
+        )
+
+        ### Indicators
+        CELL_HOVER = Image("/mod_assets/games/battleship/indicators/hover.png")
+        CELL_CONFLICT = Image("/mod_assets/games/battleship/indicators/conflict.png")
+        CELL_HIT = Image("/mod_assets/games/battleship/indicators/hit.png")
+        CELL_MISS = Image("/mod_assets/games/battleship/indicators/miss.png")
+
+        ### Ships sprites
+        # TODO: sprites for broken/sunk ships?
+        # SHIP_5_SQUARES = Image("/mod_assets/games/battleship/ship_5_squares.png")
+        # SHIP_4_SQUARES = Image("/mod_assets/games/battleship/ship_4_squares.png")
+        # SHIP_3_SQUARES = Image("/mod_assets/games/battleship/ship_3_squares.png")
+        # SHIP_2_SQUARES = Image("/mod_assets/games/battleship/ship_2_squares.png")
+        SHIP_5_SQUARES = Image("/mod_assets/games/battleship/ships/carrier.png")
+        SHIP_4_SQUARES = Image("/mod_assets/games/battleship/ships/battleship.png")
+        SHIP_3_SQUARES = Image("/mod_assets/games/battleship/ships/submarine.png")
+        SHIP_2_SQUARES = Image("/mod_assets/games/battleship/ships/destroyer.png")
+
+        ALL_SHIP_SPRITES = (SHIP_5_SQUARES, SHIP_4_SQUARES, SHIP_3_SQUARES, SHIP_2_SQUARES)
+
+        ALL_SHIPS_TYPES = (5, 4, 3, 2)
+
+        SHIP_SET_CLASSIC = (5, 4, 4, 3, 3, 3, 2, 2, 2, 2)
+
+        # Map between ship types and sprites
+        # TODO: support multiple sprites for one ship type?
+        SHIP_SPRITES_MAP = OrderedDict(zip(ALL_SHIPS_TYPES, ALL_SHIP_SPRITES))
+
         class GamePhase(object):
             """
             Types of Game phases consts
             TODO: turn this into enum
             """
-            PREPARING = 0
-            PLAYING = 1
+            PREPARATION = 0
+            ACTION = 1
+            DONE = 2
 
         def __init__(self):
             """
@@ -82,59 +185,42 @@ init python in mas_battleship:
             self._last_mouse_x = 0
             self._last_mouse_y = 0
 
-            self._phase = self.GamePhase.PREPARING
+            self._phase = self.GamePhase.PREPARATION
+            self._player_won = False
             self._hovered_cell = None
             self._dragged_ship = None
             self._grid_conflicts = []
 
             self._ship_sprites_cache = {}
 
-            self._ship_buttons = []
-            self._build_ship_buttons()
+            self._player = Player(self.SHIP_SET_CLASSIC)
+            self._monika = AIPlayer(self.SHIP_SET_CLASSIC)
 
-            self._player = Player("Player", self.SHIP_SET_CLASSIC)
-            self._monika = Player("Monika", self.SHIP_SET_CLASSIC)
+            # FIXME: this is temp
+            # self._player.grid.place_ships(Ship.build_ships(self._player.ship_set))
+            self._monika.grid.place_ships(Ship.build_ships(self._monika.ship_set))
 
-            # _orientation = random.randint(0, 3)
-            # _length = random.randint(2, 5)
-            # _coords = self._player.grid.find_place_for_ship(_length, _orientation)
-            # _ship = self._player.grid.build_ship(_coords[0], _coords[1], _length, _orientation)
-
-            # self._player.grid.build_ships(self._player.ship_set)
-            # self._player.misses_coords.append((0, 0))
-            # self._player.misses_coords.append((0, 9))
-            # self._player.misses_coords.append((9, 0))
-            # self._player.misses_coords.append((9, 9))
-            # self._monika.misses_coords.append((7, 7))
-            # _coords = self._player.ships[0].health.keys()[1]
-            # self._monika.hits_coords.append(_coords)
-
-        def _build_ship_buttons(self):
+        def has_ended(self):
             """
-            Creates MASButtonDisplayable object and fill the list of buttons
+            Returns True if at least one player has lost all of their ships
             """
-            text_disp = Null()
-            for j, ship_length in enumerate(self.SHIP_SPRITES_MAP.iterkeys()):
-                ship = Ship.build_ship(0, 0, ship_length, Ship.Orientation.UP)
-                ship_sprite = self._get_ship_sprite(ship)
-                x = self.TRACKING_GRID_ORIGIN_X + j * (self.CELL_WIDTH + self.GRID_SPACING)# TODO: Separate const for this
-                y = self.TRACKING_GRID_ORIGIN_Y
+            return self._phase == self.GamePhase.DONE
 
-                ship_button = MASButtonDisplayable(
-                    text_disp,
-                    text_disp,
-                    text_disp,
-                    ship_sprite,
-                    ship_sprite,
-                    ship_sprite,# TODO: greyed out sprite for this, maybe via an im?
-                    x,
-                    y,
-                    self.CELL_WIDTH,
-                    self.CELL_HEIGHT * ship_length + self.INNER_GRID_THICKNESS * (ship_length - 1),
-                    return_value=ship,
-                )
-                ship_button._button_down = pygame.MOUSEBUTTONDOWN
-                self._ship_buttons.append(ship_button)
+        def is_player_winner(self):
+            """
+            Returns True if the player has won, False if Monika won
+            """
+            return self._player_won
+
+        def build_and_place_player_ships(self):
+            """
+            Builds and places ships for the player on the grid
+            """
+            if self._phase != self.GamePhase.PREPARATION:
+                return
+
+            self._player.grid.clear()
+            self._player.grid.place_ships(Ship.build_ships(self._player.ship_set))
 
         @classmethod
         def _grid_coords_to_screen_coords(cls, x, y, grid_origin_x, grid_origin_y):
@@ -221,25 +307,43 @@ init python in mas_battleship:
 
             # # # Render grids
             # Predefine renders
-            grid_base_render = renpy.render(self.GRID_BASE, width, height, st, at)
+            grid_background_render = renpy.render(self.GRID_BACKGROUND, width, height, st, at)
+            grid_frame_render = renpy.render(self.GRID_FRAME, width, height, st, at)
             grid_render = renpy.render(self.GRID, width, height, st, at)
+            # TODO: separate water sprites for each grid so we get unique water movement
+            water_layer_render = renpy.render(self.WATER_LAYER, width, height, st, at)
             # Now blit 'em
-            main_render.blit(grid_base_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
-            main_render.blit(grid_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
+            main_render.subpixel_blit(grid_background_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
+            main_render.subpixel_blit(
+                water_layer_render,
+                (
+                    self.MAIN_GRID_ORIGIN_X + self.OUTER_FRAME_THICKNESS - self.HACK_WATER_LAYER_OFFSET,
+                    self.MAIN_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS  - self.HACK_WATER_LAYER_OFFSET,
+                ),
+            )
+            main_render.subpixel_blit(grid_frame_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
+            main_render.subpixel_blit(grid_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
+
             # Render Monika's grid only during the game phase
-            if self._phase == self.GamePhase.PLAYING:
-                # tracking_grid_render = renpy.render(self.TRACKING_GRID, width, height, st, at)
-                # main_render.blit(tracking_grid_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
-                main_render.blit(grid_base_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
-                main_render.blit(grid_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
+            if self._phase == self.GamePhase.ACTION or self._phase == self.GamePhase.DONE:
+                main_render.subpixel_blit(grid_background_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
+                main_render.subpixel_blit(
+                    water_layer_render,
+                    (
+                        self.TRACKING_GRID_ORIGIN_X + self.OUTER_FRAME_THICKNESS - self.HACK_WATER_LAYER_OFFSET,
+                        self.TRACKING_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS - self.HACK_WATER_LAYER_OFFSET,
+                    ),
+                )
+                main_render.subpixel_blit(grid_frame_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
+                main_render.subpixel_blit(grid_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
 
             # Render conflicts
-            if self._phase == self.GamePhase.PREPARING:
+            if self._phase == self.GamePhase.PREPARATION:
                 if self._grid_conflicts:
-                    error_mask_render = renpy.render(self.CELL_ERROR, width, height, st, at)
+                    error_mask_render = renpy.render(self.CELL_CONFLICT, width, height, st, at)
                     for coords in self._grid_conflicts:
                         x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
-                        main_render.blit(error_mask_render, (x, y))
+                        main_render.subpixel_blit(error_mask_render, (x, y))
 
             # Render player's ships
             for ship in self._player.grid.iter_ships():
@@ -248,46 +352,48 @@ init python in mas_battleship:
                 main_render.place(ship_sprite, x, y)
 
             # # # Render things that only relevant during the game
-            if self._phase == self.GamePhase.PLAYING:
+            if self._phase != self.GamePhase.PREPARATION:
                 # Render Monika's ships
                 for ship in self._monika.grid.iter_ships():
-                    if not ship.is_alive:
+                    if not ship.is_alive():
                         ship_sprite = self._get_ship_sprite(ship)
                         x, y = self._grid_coords_to_screen_coords(ship.bow_coords[0], ship.bow_coords[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
                         main_render.place(ship_sprite, x, y)
 
                 # Render hits
-                hit_mark_render = renpy.render(self.HIT_MARK, width, height, st, at)
-                for coords in self._player.hits_coords:
+                hit_mark_render = renpy.render(self.CELL_HIT, width, height, st, at)
+                for coords in self._player.iter_hits():
                     x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
-                    main_render.blit(hit_mark_render, (x, y))
+                    main_render.subpixel_blit(hit_mark_render, (x, y))
 
-                for coords in self._monika.hits_coords:
+                for coords in self._monika.iter_hits():
                     x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
-                    main_render.blit(hit_mark_render, (x, y))
+                    main_render.subpixel_blit(hit_mark_render, (x, y))
 
                 # Render misses
-                miss_mark_render = renpy.render(self.MISS_MARK, width, height, st, at)
-                for coords in self._player.misses_coords:
+                miss_mark_render = renpy.render(self.CELL_MISS, width, height, st, at)
+                for coords in self._player.iter_misses():
                     x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
-                    main_render.blit(miss_mark_render, (x, y))
+                    main_render.subpixel_blit(miss_mark_render, (x, y))
 
-                for coords in self._monika.misses_coords:
+                for coords in self._monika.iter_misses():
                     x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
-                    main_render.blit(miss_mark_render, (x, y))
+                    main_render.subpixel_blit(miss_mark_render, (x, y))
 
+                if self._phase != self.GamePhase.DONE:
+                    # Render hovering mask
+                    if self._hovered_cell is not None:
+                        hover_mask_render = renpy.render(self.CELL_HOVER, width, height, st, at)
+                        x, y = self._grid_coords_to_screen_coords(self._hovered_cell[0], self._hovered_cell[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+                        main_render.subpixel_blit(hover_mask_render, (x, y))
+
+            # # # Render things that only relevant during ship building
+            elif self._phase == self.GamePhase.PREPARATION:
                 # Render hovering mask
                 if self._hovered_cell is not None:
                     hover_mask_render = renpy.render(self.CELL_HOVER, width, height, st, at)
-                    x, y = self._grid_coords_to_screen_coords(self._hovered_cell[0], self._hovered_cell[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
-                    main_render.blit(hover_mask_render, (x, y))
-
-            # # # Render things that only relevant during ship building
-            elif self._phase == self.GamePhase.PREPARING:
-                # Render ship buttons
-                for ship_button in self._ship_buttons:
-                    sb_render = renpy.render(ship_button, width, height, st, at)
-                    main_render.blit(sb_render, (ship_button.xpos, ship_button.ypos))
+                    x, y = self._grid_coords_to_screen_coords(self._hovered_cell[0], self._hovered_cell[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                    main_render.subpixel_blit(hover_mask_render, (x, y))
 
                 # Render the ship that's currently dragged (if any)
                 if self._dragged_ship is not None:
@@ -308,33 +414,15 @@ init python in mas_battleship:
 
             return main_render
 
-        # def per_interact(self):
-        #     """
-        #     Request redraw on each interaction
-        #     """
-        #     return
-
-        def _handle_ship_buttons_events(self, ev, x, y, st):
+        def redraw_now(self):
             """
-            Checks if the player pressed one of the ship building buttons
+            Requests redraw ASAP
             """
-            for ship_button in self._ship_buttons:
-                ship = ship_button.event(ev, x, y, st)
-                if ship is not None:
-                    drag_point = (y - self.TRACKING_GRID_ORIGIN_Y) / (self.CELL_HEIGHT + self.INNER_GRID_THICKNESS)
-                    self._dragged_ship = ship.copy()
-                    self._dragged_ship.drag_coords = (0, drag_point)
-                    return True
-            return False
+            renpy.redraw(self, 0)
 
-        def _handle_preparing_events(self, ev, x, y, st):
-            # # # Check if the player wants to build a ship
-            if self._handle_ship_buttons_events(ev, x, y, st):
-                # We handle buttons' events in the method above
-                renpy.redraw(self, 0)
-
+        def _handle_preparation_events(self, ev, x, y, st):
             # # # The player pressed the rotation key
-            elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_r:
+            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_r:
                 # If the player's dragging a ship, rotate it
                 if self._dragged_ship is not None:
                     if ev.mod in (pygame.KMOD_LSHIFT, pygame.KMOD_RSHIFT):
@@ -343,7 +431,9 @@ init python in mas_battleship:
                         self._dragged_ship.orientation += 90
 
                     self._grid_conflicts[:] = self._player.grid.get_conflicts()
-                    renpy.redraw(self, 0)
+
+                    self.redraw_now()
+                    return True
 
                 # If the player's pressed the keybinding for rotating while hovering over a ship, rotate it
                 else:
@@ -365,13 +455,22 @@ init python in mas_battleship:
                     self._player.grid.place_ship(ship)
                     self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
-                    renpy.redraw(self, 0)
+                    self.redraw_now()
+                    return True
 
             # # # The player moves the mouse, we may need to update the screen
             elif ev.type == pygame.MOUSEMOTION:
                 # Continue to update the screen while the player's dragging a ship
                 if self._dragged_ship is not None:
-                    renpy.redraw(self, 0)
+                    self.redraw_now()
+
+                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                if coords != self._hovered_cell:
+                    self._hovered_cell = coords
+                    self.redraw_now()
+
+                # NOTE: Pass the event to other displayables just in case
+                return
 
             # # # The player clicks on a ship and starts dragging it
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
@@ -388,7 +487,8 @@ init python in mas_battleship:
                 ship.drag_coords = coords
                 self._dragged_ship = ship
 
-                renpy.redraw(self, 0)
+                self.redraw_now()
+                return True
 
             # # # The player releases the mouse button and places the ship on the grid
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
@@ -412,27 +512,51 @@ init python in mas_battleship:
                     self._dragged_ship.bow_coords = coords
                     # Reset drag point
                     self._dragged_ship.drag_coords = coords
-                    # Finally place it
-                    self._player.grid.place_ship(self._dragged_ship)
-                    # Check for invalid placement
-                    self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
-                # NOTE: set to None anyway if the player just wanted to remove the ship
+                # NOTE: If the ship is out of grid, we will return it where it was when player started dragging it
+                self._player.grid.place_ship(self._dragged_ship)
+                # Check for invalid placement
+                self._grid_conflicts[:] = self._player.grid.get_conflicts()
                 self._dragged_ship = None
-                renpy.redraw(self, 0)
 
-        def _handle_playing_events(self, ev, x, y, st):
-            # # # The player moves the mouse, we may need to update the screen
+                self.redraw_now()
+                return True
+
+        def _handle_action_events(self, ev, x, y, st):
+            # # # The player moves the mouse, we may need to update the screen for hover events
             if ev.type == pygame.MOUSEMOTION:
                 coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
-
-                # Ask to redraw if we either just started hover or stopped
-                if (
-                    coords is not None
-                    or self._hovered_cell is not None
-                ):
+                if coords != self._hovered_cell:
                     self._hovered_cell = coords
-                    renpy.redraw(self, 0)
+                    self.redraw_now()
+
+                # NOTE: Pass the event further just in case
+                return
+
+            # # # The player releases the mouse button potentially shooting
+            elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
+                coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+                if coords is None:
+                    return
+
+                if self._player.has_shot_at(coords):
+                    # Already shot there
+                    return
+
+                ship = self._monika.grid.get_ship_at(coords[0], coords[1])
+                if ship is None:
+                    self._player.register_miss(coords)
+
+                else:
+                    self._player.register_hit(coords)
+                    ship.take_hit()
+                    if not ship.is_alive():
+                        if self._monika.has_lost_all_ships():
+                            self._phase = self.GamePhase.DONE
+                            self._player_won = True
+
+                self.redraw_now()
+                return True
 
         def event(self, ev, x, y, st):
             """
@@ -442,14 +566,18 @@ init python in mas_battleship:
             self._last_mouse_x = x
             self._last_mouse_y = y
 
-            if self._phase == self.GamePhase.PREPARING:
-                self._handle_preparing_events(ev, x, y, st)
+            rv = None
 
-            elif self._phase == self.GamePhase.PLAYING:
-                self._handle_playing_events(ev, x, y, st)
+            if self._phase == self.GamePhase.PREPARATION:
+                rv = self._handle_preparation_events(ev, x, y, st)
+
+            elif self._phase == self.GamePhase.ACTION:
+                rv = self._handle_action_events(ev, x, y, st)
 
             # raise renpy.IgnoreEvent()
-            return
+            # TODO: use ignroeevent and only return True when the game is over, this'd allow to remove the loop from the label?
+            # but this could cause problems with rollback
+            return rv
 
     class Grid(object):
         """
@@ -494,6 +622,9 @@ init python in mas_battleship:
         def iter_ships(self):
             """
             Returns an iterator over the ships on this grid
+
+            OUT:
+                iterator over the list of ships
             """
             return iter(self._ships)
 
@@ -882,9 +1013,20 @@ init python in mas_battleship:
             self._health = length
             self.drag_coords = self.bow_coords
 
-        @property
+        def __repr__(self):
+            return "<{0}: (at: {1}, size: {2}, hp: {3})>".format(
+                type(self).__name__,
+                self.bow_coords,
+                self.length,
+                self._health,
+            )
+
         def is_alive(self):
             return self._health > 0
+
+        def take_hit(self):
+            if self.is_alive():
+                self._health -= 1
 
         @staticmethod
         def _apply_rotation_matrix(x, y, cos, sin, origin_x, origin_y, is_positive):
@@ -1014,10 +1156,7 @@ init python in mas_battleship:
             Returns offset from where the player drags the ship to its bow
             TODO: Consider caching this value
             """
-            offset =  int(meth.sqrt(
-                meth.pow(self.bow_coords[0]-self.drag_coords[0], 2)
-                + meth.pow(self.bow_coords[1]-self.drag_coords[1], 2)
-            ))
+            offset = int(meth.hypot(self.bow_coords[0]-self.drag_coords[0], self.bow_coords[1]-self.drag_coords[1]))
             # Check if we need to invert it
             if self.orientation in (self.Orientation.LEFT, self.Orientation.UP):
                 offset *= -1
@@ -1144,27 +1283,97 @@ init python in mas_battleship:
 
     class Player(object):
         """
+        Meat battleship player
         """
-        def __init__(self, id, ship_set):
+        def __init__(self, ship_set):
             """
             Constructor
             """
-            self.id = id
             self.ship_set = ship_set
             self.grid = Grid()
 
-            self.hits_coords = []
-            self.misses_coords = []
+            # Sets of tuples with coordinates
+            self._hits = set()
+            self._misses = set()
+
+        def __repr__(self):
+            return "<{0}: (ships: {1}, hits: {2}, misses: {3})>".format(
+                type(self).__name__,
+                list(self.grid.iter_ships()),
+                sorted(self._hits),
+                sorted(self._misses),
+            )
+
+        def has_lost_all_ships(self):
+            """
+            Checks whether or not the player has lost all their ships
+
+            OUT:
+                bool
+            """
+            for ship in self.grid.iter_ships():
+                if ship.is_alive():
+                    return False
+
+            return True
+
+        def register_hit(self, coords):
+            """
+            Adds a successful hit for this player
+
+            IN:
+                coords - a tuple of x and y coordinates
+            """
+            self._hits.add(coords)
+
+        def register_miss(self, coords):
+            """
+            Adds a "successful" miss for this player
+
+            IN:
+                coords - a tuple of x and y coordinates
+            """
+            self._misses.add(coords)
+
+        def has_shot_at(self, coords):
+            """
+            Returns True if this player has shot at the given coordinates
+
+            IN:
+                coords - a tuple of x and y coordinates
+
+            OUT:
+                bool
+            """
+            return coords in self._misses or coords in self._hits
+
+        def iter_hits(self):
+            """
+            Returns iterator over this player hits
+
+            OUT:
+                iterator over the set of hits
+            """
+            return iter(self._hits)
+
+        def iter_misses(self):
+            """
+            Returns iterator over this player misses
+
+            OUT:
+                iterator over the set of misses
+            """
+            return iter(self._misses)
 
     class AIPlayer(Player):
         """
+        Steal and circuits battleship player
         """
-        def __init__(self, id, ship_set):
+        def __init__(self, ship_set):
             """
             Constructor for AI player
             """
-            super(AIPlayer, self).__init__(id, ship_set)
-            # Add params as needed
+            super(AIPlayer, self).__init__(ship_set)
 
         def play_turn(self):
             """
