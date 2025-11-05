@@ -11,9 +11,10 @@ label mas_battleship_game_start:
     $ disable_esc()
 
     $ mas_battleship.game = mas_battleship.Battleship()
+    $ renpy.start_predict(mas_battleship.game)
     $ mas_battleship.game.build_and_place_player_ships()
     # FIXME: this is temp
-    # $ mas_battleship.game._phase = mas_battleship.game.GamePhase.ACTION
+    # $ mas_battleship.game.set_phase_action()
 
     show monika at t31
     show screen mas_battleship_ui(mas_battleship.game)
@@ -21,7 +22,7 @@ label mas_battleship_game_start:
     # FALL THROUGH
 
 label mas_battleship_game_loop:
-    while not mas_battleship.game.has_ended():
+    while not mas_battleship.game.is_done():
         $ ui.interact()
 
     pause 3.0
@@ -29,6 +30,7 @@ label mas_battleship_game_loop:
 
 label mas_battleship_game_end:
     hide screen mas_battleship_ui
+    $ renpy.stop_predict(mas_battleship.game)
     show monika at t11
 
     $ enable_esc()
@@ -67,9 +69,8 @@ init -50 python in mas_battleship:
         """
         Custom warper for time interpolation
         Based on: https://easings.net/#easeInOutBack
-        Graph: https://www.desmos.com/calculator/eocmyw2bzw
+        Graph: https://www.desmos.com/calculator/wwt6eqizfb
         """
-        # c1 = -2.8
         c1 = -3.8
         c2 = c1 * 1.525
 
@@ -187,6 +188,7 @@ init python in mas_battleship:
 
             self._phase = self.GamePhase.PREPARATION
             self._player_won = False
+
             self._hovered_cell = None
             self._dragged_ship = None
             self._grid_conflicts = []
@@ -197,14 +199,7 @@ init python in mas_battleship:
             self._monika = AIPlayer(self.SHIP_SET_CLASSIC)
 
             # FIXME: this is temp
-            # self._player.grid.place_ships(Ship.build_ships(self._player.ship_set))
             self._monika.grid.place_ships(Ship.build_ships(self._monika.ship_set))
-
-        def has_ended(self):
-            """
-            Returns True if at least one player has lost all of their ships
-            """
-            return self._phase == self.GamePhase.DONE
 
         def is_player_winner(self):
             """
@@ -212,11 +207,35 @@ init python in mas_battleship:
             """
             return self._player_won
 
+        def is_in_preparation(self):
+            """
+            Returns True if the players are positioning their ships
+            """
+            return self._phase == self.GamePhase.PREPARATION
+
+        def is_in_action(self):
+            """
+            Returns True if the game is in active phase
+            """
+            return self._phase == self.GamePhase.ACTION
+
+        def is_done(self):
+            """
+            Returns True if at least one player has lost all of their ships
+            """
+            return self._phase == self.GamePhase.DONE
+
+        def set_phase_action(self):
+            self._phase = self.GamePhase.ACTION
+
+        def set_phase_done(self):
+            self._phase = self.GamePhase.DONE
+
         def build_and_place_player_ships(self):
             """
             Builds and places ships for the player on the grid
             """
-            if self._phase != self.GamePhase.PREPARATION:
+            if not self.is_in_preparation():
                 return
 
             self._player.grid.clear()
@@ -325,7 +344,7 @@ init python in mas_battleship:
             main_render.subpixel_blit(grid_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
 
             # Render Monika's grid only during the game phase
-            if self._phase == self.GamePhase.ACTION or self._phase == self.GamePhase.DONE:
+            if self.is_in_action() or self.is_done():
                 main_render.subpixel_blit(grid_background_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
                 main_render.subpixel_blit(
                     water_layer_render,
@@ -338,7 +357,7 @@ init python in mas_battleship:
                 main_render.subpixel_blit(grid_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
 
             # Render conflicts
-            if self._phase == self.GamePhase.PREPARATION:
+            if self.is_in_preparation():
                 if self._grid_conflicts:
                     error_mask_render = renpy.render(self.CELL_CONFLICT, width, height, st, at)
                     for coords in self._grid_conflicts:
@@ -352,7 +371,7 @@ init python in mas_battleship:
                 main_render.place(ship_sprite, x, y)
 
             # # # Render things that only relevant during the game
-            if self._phase != self.GamePhase.PREPARATION:
+            if not self.is_in_preparation():
                 # Render Monika's ships
                 for ship in self._monika.grid.iter_ships():
                     if not ship.is_alive():
@@ -380,7 +399,7 @@ init python in mas_battleship:
                     x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
                     main_render.subpixel_blit(miss_mark_render, (x, y))
 
-                if self._phase != self.GamePhase.DONE:
+                if not self.is_done():
                     # Render hovering mask
                     if self._hovered_cell is not None:
                         hover_mask_render = renpy.render(self.CELL_HOVER, width, height, st, at)
@@ -388,7 +407,7 @@ init python in mas_battleship:
                         main_render.subpixel_blit(hover_mask_render, (x, y))
 
             # # # Render things that only relevant during ship building
-            elif self._phase == self.GamePhase.PREPARATION:
+            elif self.is_in_preparation():
                 # Render hovering mask
                 if self._hovered_cell is not None:
                     hover_mask_render = renpy.render(self.CELL_HOVER, width, height, st, at)
@@ -552,7 +571,7 @@ init python in mas_battleship:
                     ship.take_hit()
                     if not ship.is_alive():
                         if self._monika.has_lost_all_ships():
-                            self._phase = self.GamePhase.DONE
+                            self.set_phase_done()
                             self._player_won = True
 
                 self.redraw_now()
@@ -568,10 +587,10 @@ init python in mas_battleship:
 
             rv = None
 
-            if self._phase == self.GamePhase.PREPARATION:
+            if self.is_in_preparation():
                 rv = self._handle_preparation_events(ev, x, y, st)
 
-            elif self._phase == self.GamePhase.ACTION:
+            elif self.is_in_action():
                 rv = self._handle_action_events(ev, x, y, st)
 
             # raise renpy.IgnoreEvent()
@@ -587,12 +606,12 @@ init python in mas_battleship:
                 self.WATER_LAYER,
                 self.CELL_HOVER,
                 self.CELL_CONFLICT,
-                self.CELL_HIT
-                self.CELL_MISS
-                self.SHIP_5_SQUARES
-                self.SHIP_4_SQUARES
-                self.SHIP_3_SQUARES
-                self.SHIP_2_SQUARES
+                self.CELL_HIT,
+                self.CELL_MISS,
+                self.SHIP_5_SQUARES,
+                self.SHIP_4_SQUARES,
+                self.SHIP_3_SQUARES,
+                self.SHIP_2_SQUARES,
             ]
 
     class Grid(object):
