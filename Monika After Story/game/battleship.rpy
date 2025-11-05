@@ -3,7 +3,16 @@ init 999 python:
     mas_enable_quit()
 
 screen mas_battleship_ui(game):
-    add game
+    layer "minigames"
+
+    fixed:
+        add game:
+            xanchor 1.0
+            xpos 1.0
+            xoffset -mas_battleship.Battleship.GRID_SPACING
+            yalign 0.5
+
+
 
 label mas_battleship_game_start:
     window hide
@@ -14,16 +23,18 @@ label mas_battleship_game_start:
     $ renpy.start_predict(mas_battleship.game)
     $ mas_battleship.game.build_and_place_player_ships()
     # FIXME: this is temp
-    # $ mas_battleship.game.set_phase_action()
+    $ mas_battleship.game.set_phase_action()
 
     show monika at t31
+    # $ renpy.say(m, "There we go", interact=False)
     show screen mas_battleship_ui(mas_battleship.game)
 
     # FALL THROUGH
 
 label mas_battleship_game_loop:
     while not mas_battleship.game.is_done():
-        $ ui.interact()
+        $ ui.interact(type="minigame")
+        # $ mas_battleship.game.invoke_say("hello there!")
 
     pause 3.0
     # FALL THROUGH
@@ -118,10 +129,10 @@ init python in mas_battleship:
         OUTER_FRAME_THICKNESS = 20
         INNER_GRID_THICKNESS = 2
 
-        MAIN_GRID_ORIGIN_X = config.screen_width - 2 * (GRID_WIDTH + GRID_SPACING)
-        MAIN_GRID_ORIGIN_Y = (config.screen_height - GRID_HEIGHT) // 2
-        TRACKING_GRID_ORIGIN_X = config.screen_width - GRID_WIDTH - GRID_SPACING
-        TRACKING_GRID_ORIGIN_Y = (config.screen_height - GRID_HEIGHT) // 2
+        MAIN_GRID_ORIGIN_X = 0 # config.screen_width - 2 * (GRID_WIDTH + GRID_SPACING)
+        MAIN_GRID_ORIGIN_Y = 0 # (config.screen_height - GRID_HEIGHT) // 2
+        TRACKING_GRID_ORIGIN_X = GRID_WIDTH + GRID_SPACING # config.screen_width - GRID_WIDTH - GRID_SPACING
+        TRACKING_GRID_ORIGIN_Y = MAIN_GRID_ORIGIN_Y # (config.screen_height - GRID_HEIGHT) // 2
 
         ### Grid sprites
         GRID_BACKGROUND = Image("/mod_assets/games/battleship/grid/background.png")
@@ -186,6 +197,8 @@ init python in mas_battleship:
             self._last_mouse_x = 0
             self._last_mouse_y = 0
 
+            self._is_sensitive = True
+
             self._phase = self.GamePhase.PREPARATION
             self._player_won = False
 
@@ -230,6 +243,14 @@ init python in mas_battleship:
 
         def set_phase_done(self):
             self._phase = self.GamePhase.DONE
+
+        def invoke_say(self, what):
+            """
+            Invokes renpy say from a new context allowing Monika speak mid game
+            """
+            self._is_sensitive = False
+            renpy.invoke_in_new_context(renpy.say, store.m, what, interact=True)
+            self._is_sensitive = True
 
         def build_and_place_player_ships(self):
             """
@@ -322,7 +343,7 @@ init python in mas_battleship:
             Render method for this disp
             """
             # Define our main render
-            main_render = renpy.Render(width, height)
+            main_render = renpy.Render(2*self.GRID_WIDTH + self.GRID_SPACING, self.GRID_HEIGHT)
 
             # # # Render grids
             # Predefine renders
@@ -586,6 +607,10 @@ init python in mas_battleship:
             self._last_mouse_y = y
 
             rv = None
+
+            # When disabled we only process mouse motions
+            if not self._is_sensitive and ev.type != pygame.MOUSEMOTION:
+                return rv
 
             if self.is_in_preparation():
                 rv = self._handle_preparation_events(ev, x, y, st)
