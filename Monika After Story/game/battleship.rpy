@@ -1,17 +1,116 @@
 init 999 python:
-    # config.per_frame_screens.append("_trace_screen")
     mas_enable_quit()
+    while mas_inEVL("mas_battleship_game_start"):
+        mas_rmEVL("mas_battleship_game_start")
+    if persistent.current_monikatopic != "mas_battleship_game_start":
+        queueEvent("mas_battleship_game_start")
 
 screen mas_battleship_ui(game):
     layer "minigames"
 
-    fixed:
+    # timer 0.5 action Function(renpy.restart_interaction) repeat True
+
+    vbox:
+        xanchor 1.0
+        xpos 1.0
+        xoffset -mas_battleship.Battleship.GRID_SPACING
+        yalign 0.0
+        yoffset mas_battleship.Battleship.GRID_SPACING
+        xmaximum 2*mas_battleship.Battleship.GRID_WIDTH + mas_battleship.Battleship.GRID_SPACING
+        ymaximum config.screen_height
+        xfill False
+        yfill False
+        spacing mas_battleship.Battleship.GRID_SPACING
+
+        #         vbox:
+        #             text "Score: 700-700"
+        #             text "Grade: 10000"
+        #             text "Best Grade: 100000"
+
+        vbox:
+            spacing mas_battleship.Battleship.GRID_SPACING
+
+            frame:
+                xanchor 0.0
+                xpos 0.0
+                xminimum 256
+
+                vbox:
+                    python:
+                        if game.is_in_action():
+                            status = "active"
+                        elif game.is_in_preparation():
+                            status = "initialization"
+                        elif game.is_done():
+                            status = "halting"
+
+                        target = game.get_hovering_square()
+
+                    text "CSM: [status]"
+                    text "Target: [target]"
+
+            frame:
+                xanchor 1.0
+                xpos 1.0
+                # background Frame("mod_assets/games/battleship/frame.png", left=2, top=2)
+
+                hbox:
+                    textbutton "Start":
+                        action Function(game.set_phase_action)
+                        sensitive game.is_in_preparation()
+
+                    textbutton "Reposition":
+                        action Function(game.build_and_place_player_ships)
+                        sensitive game.is_in_preparation()
+
+                    textbutton "Shutdown":
+                        action [
+                            Function(game.mark_player_gaveup),
+                            Function(game.set_phase_done),
+                        ]
+                        sensitive not game.is_done()
+
         add game:
             xanchor 1.0
             xpos 1.0
-            xoffset -mas_battleship.Battleship.GRID_SPACING
-            yalign 0.5
 
+        if not game.is_in_preparation():
+            frame:
+                background None
+                padding (0, 0, 0, 0)
+                # HACK: without ymaximum this frame keeps expanding, even though it knows its children size and had yfill False
+                # probably a bug in renpy
+                ymaximum 0
+                yfill False
+                xanchor 0.0
+                xpos 0.0
+
+                frame:
+                    # background Frame("mod_assets/games/battleship/frame.png", left=2, top=2)
+                    xanchor 0.0
+                    xpos 0.0
+                    xminimum 132
+
+                    vbox:
+                        python:
+                            ph = game.get_player_hits_count()
+                            pm = game.get_player_misses_count()
+                        text "Hits: [ph]"
+                        text "Misses: [pm]"
+
+                frame:
+                    # background Frame("mod_assets/games/battleship/frame.png", left=2, top=2)
+                    xanchor 0.0
+                    xpos 0.0
+                    xoffset mas_battleship.Battleship.GRID_WIDTH + mas_battleship.Battleship.GRID_SPACING
+                    xminimum 132
+
+                    vbox:
+                        python:
+                            mh = game.get_monika_hits_count()
+                            mm = game.get_monika_misses_count()
+                        text "Hits: [mh]"
+                        text "Misses: [mm]"
 
 
 label mas_battleship_game_start:
@@ -20,13 +119,10 @@ label mas_battleship_game_start:
     $ disable_esc()
 
     $ mas_battleship.game = mas_battleship.Battleship()
-    $ renpy.start_predict(mas_battleship.game)
+    # $ renpy.start_predict(mas_battleship.game)
     $ mas_battleship.game.build_and_place_player_ships()
-    # FIXME: this is temp
-    $ mas_battleship.game.set_phase_action()
 
-    show monika at t31
-    # $ renpy.say(m, "There we go", interact=False)
+    show monika idle at t31
     show screen mas_battleship_ui(mas_battleship.game)
 
     # FALL THROUGH
@@ -34,46 +130,38 @@ label mas_battleship_game_start:
 label mas_battleship_game_loop:
     while not mas_battleship.game.is_done():
         $ ui.interact(type="minigame")
-        # $ mas_battleship.game.invoke_say("hello there!")
 
-    pause 3.0
+    pause 1.0
     # FALL THROUGH
 
 label mas_battleship_game_end:
+    if mas_battleship.game.is_player_winner():
+        m 1hub "Congrats! ^^"
+
+    elif mas_battleship.game.is_monika_winner():
+        m 1euu "Better luck next time :P"
+
+    elif mas_battleship.game.did_player_giveup():
+        m 1eua "Aww, I really wanted to finish this one."
+
+    else:
+        m 1eua "[player], you shouldn't be able to see this. Is it a bug?"
+
     hide screen mas_battleship_ui
-    $ renpy.stop_predict(mas_battleship.game)
+    # $ renpy.stop_predict(mas_battleship.game)
     show monika at t11
+
+    $ mas_battleship.game = None
 
     $ enable_esc()
     $ HKBShowButtons()
     window auto
 
-    if mas_battleship.game.is_player_winner():
-        m 1hub "Congrats! ^^"
-
-    else:
-        m 1euu "Better luck next time :P"
-
-    $ mas_battleship.game = None
-
     return
 
 
-transform mas_battleship_water_transform(width, height):
-    animation
-
-    subpixel True
-    anchor (0.0, 0.0)
-
-    block:
-        crop (0, 0, width//2, height//2)
-        linear 30.0 crop (width//8, height//16, width//2, height//2)
-        warp mas_battleship._water_transform_warper 70.0 crop (width//2, height//2, width//2, height//2)
-        repeat
-
-
-init -50 python in mas_battleship:
-    import math
+init -30 python in mas_battleship:
+    import math as meth
 
     # @renpy.atl_warper
     def _water_transform_warper(t):
@@ -86,27 +174,38 @@ init -50 python in mas_battleship:
         c2 = c1 * 1.525
 
         if t < 0.5:
-            return (math.pow(2*t, 2) * ((c2 + 1)*2*t - c2)) / 2.0
+            return (meth.pow(2*t, 2) * ((c2 + 1)*2*t - c2)) / 2.0
 
         else:
-            return (math.pow(2*t - 2, 2) * ((c2 + 1)*(t*2 - 2) + c2) + 2) / 2.0
+            return (meth.pow(2*t - 2, 2) * ((c2 + 1)*(t*2 - 2) + c2) + 2) / 2.0
 
-init python in mas_battleship:
+init -20:
+    transform mas_battleship_water_transform(width, height):
+        animation
+
+        subpixel True
+        anchor (0.0, 0.0)
+
+        block:
+            crop (0, 0, width//2, height//2)
+            linear 30.0 crop (width//8, height//16, width//2, height//2)
+            warp mas_battleship._water_transform_warper 70.0 crop (width//2, height//2, width//2, height//2)
+            repeat
+
+init -10 python in mas_battleship:
     import random
     import pygame
     import math as meth
     import itertools
 
-    from collections import OrderedDict
+    from collections import OrderedDict, Counter
     from renpy import (
         store,
-        config,
+        # config,
     )
     from store import (
         Image,
-        Null,
         Transform,
-        MASButtonDisplayable,
     )
 
     # The game object, will be set on game start
@@ -161,10 +260,6 @@ init python in mas_battleship:
 
         ### Ships sprites
         # TODO: sprites for broken/sunk ships?
-        # SHIP_5_SQUARES = Image("/mod_assets/games/battleship/ship_5_squares.png")
-        # SHIP_4_SQUARES = Image("/mod_assets/games/battleship/ship_4_squares.png")
-        # SHIP_3_SQUARES = Image("/mod_assets/games/battleship/ship_3_squares.png")
-        # SHIP_2_SQUARES = Image("/mod_assets/games/battleship/ship_2_squares.png")
         SHIP_5_SQUARES = Image("/mod_assets/games/battleship/ships/carrier.png")
         SHIP_4_SQUARES = Image("/mod_assets/games/battleship/ships/battleship.png")
         SHIP_3_SQUARES = Image("/mod_assets/games/battleship/ships/submarine.png")
@@ -182,12 +277,22 @@ init python in mas_battleship:
 
         class GamePhase(object):
             """
-            Types of Game phases consts
+            Types of Game phases
             TODO: turn this into enum
             """
             PREPARATION = 0
             ACTION = 1
             DONE = 2
+
+        class WinState(object):
+            """
+            Types of win conditions
+            TODO: turn this into enum
+            """
+            UNKNOWN = 0
+            PLAYER_WON = 1
+            MONIKA_WON = 2
+            PLAYER_GAVEUP = 3
 
         def __init__(self):
             """
@@ -200,7 +305,7 @@ init python in mas_battleship:
             self._is_sensitive = True
 
             self._phase = self.GamePhase.PREPARATION
-            self._player_won = False
+            self._win_state = self.WinState.UNKNOWN
 
             self._hovered_cell = None
             self._dragged_ship = None
@@ -214,53 +319,168 @@ init python in mas_battleship:
             # FIXME: this is temp
             self._monika.grid.place_ships(Ship.build_ships(self._monika.ship_set))
 
+
+        def mark_player_won(self):
+            self._win_state = self.WinState.PLAYER_WON
+
+        def mark_monika_won(self):
+            self._win_state = self.WinState.MONIKA_WON
+
+        def mark_player_gaveup(self):
+            self._win_state = self.WinState.PLAYER_GAVEUP
+
         def is_player_winner(self):
+            return self._win_state == self.WinState.PLAYER_WON
+
+        def is_monika_winner(self):
+            return self._win_state == self.WinState.MONIKA_WON
+
+        def did_player_giveup(self):
+            return self._win_state == self.WinState.PLAYER_GAVEUP
+
+
+        def get_player_hits_count(self):
+            return self._player.total_hits()
+
+        def get_player_misses_count(self):
+            return self._player.total_misses()
+
+        def get_monika_hits_count(self):
+            return self._monika.total_hits()
+
+        def get_monika_misses_count(self):
+            return self._monika.total_misses()
+
+
+        def can_start_action(self):
             """
-            Returns True if the player has won, False if Monika won
+            Checks if all players' ships are placed and valid
+
+            OUT:
+                bool
             """
-            return self._player_won
+            for player in (self._player, self._monika):
+                if player.grid.has_conflicts():
+                    return False
+
+                set_ships = Counter(player.ship_set)
+                grid_ships = Counter(ship.length for ship in player.grid.iter_ships())
+
+                if set_ships != grid_ships:
+                    return False
+
+            return True
 
         def is_in_preparation(self):
             """
             Returns True if the players are positioning their ships
+
+            OUT:
+                bool
             """
             return self._phase == self.GamePhase.PREPARATION
 
         def is_in_action(self):
             """
             Returns True if the game is in active phase
+
+            OUT:
+                bool
             """
             return self._phase == self.GamePhase.ACTION
 
         def is_done(self):
             """
             Returns True if at least one player has lost all of their ships
+
+            OUT:
+                bool
             """
             return self._phase == self.GamePhase.DONE
 
         def set_phase_action(self):
+            """
+            Changes the game phase to action
+
+            NOTE: returning a non-None value is important, this way we end the interaction
+            from the screen action
+
+            OUT:
+                bool
+            """
+            if self.is_in_action() or not self.can_start_action():
+                return False
+
             self._phase = self.GamePhase.ACTION
+            return True
 
         def set_phase_done(self):
+            """
+            Changes the game phase to done
+
+            NOTE: returning a non-None value is important, this way we end the interaction
+            from the screen action
+
+            OUT:
+                bool
+            """
             self._phase = self.GamePhase.DONE
+            self._is_sensitive = False
+            return True
+
+
+        @staticmethod
+        def _update_screens():
+            """
+            Request renpy to update all screens
+            """
+            renpy.restart_interaction()
+
+        def get_hovering_square(self):
+            """
+            Returns a human-readable name of the cell
+            that the player is hovering mouse above
+
+            OUT:
+                str like "A1" or "J10"
+            """
+            if not self._hovered_cell:
+                return "n/a"
+
+            UNICOED_CODE_POINT_OFFSET = 65
+            AXIS_OFFSET = 1
+            x, y = self._hovered_cell
+
+            return "{}{}".format(
+                chr(x + UNICOED_CODE_POINT_OFFSET),
+                y + AXIS_OFFSET,
+            )
 
         def invoke_say(self, what):
             """
             Invokes renpy say from a new context allowing Monika speak mid game
             """
+            previous_is_sensitive = self._is_sensitive
             self._is_sensitive = False
             renpy.invoke_in_new_context(renpy.say, store.m, what, interact=True)
-            self._is_sensitive = True
+            self._is_sensitive = previous_is_sensitive
+
 
         def build_and_place_player_ships(self):
             """
             Builds and places ships for the player on the grid
+
+            NOTE: returning a non-None value is important, this way we end the interaction
+            from the screen action
             """
             if not self.is_in_preparation():
-                return
+                return False
 
             self._player.grid.clear()
             self._player.grid.place_ships(Ship.build_ships(self._player.ship_set))
+            self._grid_conflicts[:] = self._player.grid.get_conflicts()
+
+            return True
 
         @classmethod
         def _grid_coords_to_screen_coords(cls, x, y, grid_origin_x, grid_origin_y):
@@ -508,9 +728,11 @@ init python in mas_battleship:
                 if coords != self._hovered_cell:
                     self._hovered_cell = coords
                     self.redraw_now()
-
-                # NOTE: Pass the event to other displayables just in case
-                return
+                    self._update_screens()
+                    # NOTE: usually we want to pass mousemoution events to other dispalyable
+                    # but since we have to update screens here, this causes lag,
+                    # so we ignore the mousemoution if we used it for hover/unhover
+                    raise renpy.IgnoreEvent()
 
             # # # The player clicks on a ship and starts dragging it
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
@@ -569,9 +791,11 @@ init python in mas_battleship:
                 if coords != self._hovered_cell:
                     self._hovered_cell = coords
                     self.redraw_now()
-
-                # NOTE: Pass the event further just in case
-                return
+                    self._update_screens()
+                    # NOTE: usually we want to pass mousemoution events to other dispalyable
+                    # but since we have to update screens here, this causes lag,
+                    # so we ignore the mousemoution if we used it for hover/unhover
+                    raise renpy.IgnoreEvent()
 
             # # # The player releases the mouse button potentially shooting
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
@@ -593,7 +817,7 @@ init python in mas_battleship:
                     if not ship.is_alive():
                         if self._monika.has_lost_all_ships():
                             self.set_phase_done()
-                            self._player_won = True
+                            self.mark_player_won()
 
                 self.redraw_now()
                 return True
@@ -606,22 +830,19 @@ init python in mas_battleship:
             self._last_mouse_x = x
             self._last_mouse_y = y
 
-            rv = None
-
             # When disabled we only process mouse motions
             if not self._is_sensitive and ev.type != pygame.MOUSEMOTION:
-                return rv
+                return None
 
             if self.is_in_preparation():
-                rv = self._handle_preparation_events(ev, x, y, st)
+                return self._handle_preparation_events(ev, x, y, st)
 
             elif self.is_in_action():
-                rv = self._handle_action_events(ev, x, y, st)
+                return self._handle_action_events(ev, x, y, st)
 
-            # raise renpy.IgnoreEvent()
             # TODO: use ignroeevent and only return True when the game is over, this'd allow to remove the loop from the label?
             # but this could cause problems with rollback
-            return rv
+            return
 
         def visit(self):
             return [
@@ -796,6 +1017,18 @@ init python in mas_battleship:
                 return ships[-1]
 
             return None
+
+        def has_conflicts(self):
+            """
+            Returns True if there's ships on the grid that were placed incorrectly
+
+            OUT:
+                bool
+            """
+            for coords, cell_state in self._cell_states.iteritems():
+                if cell_state == self.CellState.CONFLICT:
+                    return True
+            return False
 
         def get_conflicts(self):
             """
@@ -1406,6 +1639,12 @@ init python in mas_battleship:
                 bool
             """
             return coords in self._misses or coords in self._hits
+
+        def total_hits(self):
+            return len(self._hits)
+
+        def total_misses(self):
+            return len(self._misses)
 
         def iter_hits(self):
             """
