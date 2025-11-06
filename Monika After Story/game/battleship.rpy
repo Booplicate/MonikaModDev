@@ -8,8 +8,6 @@ init 999 python:
 screen mas_battleship_ui(game):
     layer "minigames"
 
-    # timer 0.5 action Function(renpy.restart_interaction) repeat True
-
     vbox:
         xanchor 1.0
         xpos 1.0
@@ -33,31 +31,30 @@ screen mas_battleship_ui(game):
             frame:
                 xanchor 0.0
                 xpos 0.0
-                xminimum 256
+                xminimum 200
 
                 vbox:
                     python:
-                        if game.is_in_action():
-                            status = "active"
-                        elif game.is_in_preparation():
-                            status = "initialization"
-                        elif game.is_done():
-                            status = "halting"
+                        if game.is_player_turn():
+                            turn = store.player
+                        else:
+                            turn = "Monika"
 
                         target = game.get_hovering_square()
 
-                    text "CSM: [status]"
+                    text "Turn: [turn]"
                     text "Target: [target]"
 
             frame:
                 xanchor 1.0
                 xpos 1.0
-                # background Frame("mod_assets/games/battleship/frame.png", left=2, top=2)
 
                 hbox:
+                    spacing 0
+
                     textbutton "Start":
                         action Function(game.set_phase_action)
-                        sensitive game.is_in_preparation()
+                        sensitive game.is_in_preparation() and game.can_start_action()
 
                     textbutton "Reposition":
                         action Function(game.build_and_place_player_ships)
@@ -86,7 +83,6 @@ screen mas_battleship_ui(game):
                 xpos 0.0
 
                 frame:
-                    # background Frame("mod_assets/games/battleship/frame.png", left=2, top=2)
                     xanchor 0.0
                     xpos 0.0
                     xminimum 132
@@ -99,7 +95,6 @@ screen mas_battleship_ui(game):
                         text "Misses: [pm]"
 
                 frame:
-                    # background Frame("mod_assets/games/battleship/frame.png", left=2, top=2)
                     xanchor 0.0
                     xpos 0.0
                     xoffset mas_battleship.Battleship.GRID_WIDTH + mas_battleship.Battleship.GRID_SPACING
@@ -121,14 +116,22 @@ label mas_battleship_game_start:
     $ mas_battleship.game = mas_battleship.Battleship()
     # $ renpy.start_predict(mas_battleship.game)
     $ mas_battleship.game.build_and_place_player_ships()
+    $ mas_battleship.game.choose_first_player()
 
-    show monika idle at t31
+    if mas_battleship.game.is_player_turn():
+        m 3eua "Your turn first."
+    else:
+        m 3hub "First turn is mine."
+
+    show monika 1eua at t31
     show screen mas_battleship_ui(mas_battleship.game)
 
     # FALL THROUGH
 
 label mas_battleship_game_loop:
     while not mas_battleship.game.is_done():
+        if not mas_battleship.game.is_player_turn() and mas_battleship.game.is_in_action():
+            $ mas_battleship.game.handle_monika_turn()
         $ ui.interact(type="minigame")
 
     pause 1.0
@@ -199,10 +202,7 @@ init -10 python in mas_battleship:
     import itertools
 
     from collections import OrderedDict, Counter
-    from renpy import (
-        store,
-        # config,
-    )
+    from renpy import store
     from store import (
         Image,
         Transform,
@@ -210,6 +210,107 @@ init -10 python in mas_battleship:
 
     # The game object, will be set on game start
     game = None
+
+    # class ExpressionManager(object):
+    #     class Pose(object):
+    #         """
+    #         Monika's poses constants
+    #         TODO: turn this into enum
+    #         """
+    #         RESTING = "1"
+    #         CROSSED = "2"
+    #         RESTING_POINT_RIGHT = "3"
+    #         POINT_RIGHT = "4"
+    #         # LEAN = "5"
+    #         DOWN_POINRT_RIGHT = "7"
+
+    #         @classmethod
+    #         def switch_pose(cls, pose):
+    #             """
+    #             Switches from resting to crossed or vice versa
+
+    #             IN:
+    #                 pose - Pose constant, the pose to switch from
+    #             """
+    #             if pose == cls.RESTING:
+    #                 return cls.CROSSED
+
+    #             if pose == cls.CROSSED:
+    #                 return cls.RESTING
+
+    #             # Should never happen
+    #             return pose
+
+    #         @classmethod
+    #         def transition_to_pointing(cls, pose, want_change_pose=False):
+    #             """
+    #             Finds an appropriate expr with pointing hand using the current pose
+
+    #             IN:
+    #                 pose - Pose constant, current pose
+    #                 want_change_pose - bool, do we want to change from resting to crossed
+    #                     or vice versa
+    #             """
+    #             if want_change_pose:
+    #                 return cls.DOWN_POINRT_RIGHT
+
+    #             if pose == cls.RESTING:
+    #                 return cls.RESTING_POINT_RIGHT
+
+    #             if pose == cls.CROSSED:
+    #                 return cls.POINT_RIGHT
+
+    #             # Should never happen
+    #             return pose
+
+    #         @classmethod
+    #         def transition_from_pointing(cls, pose):
+    #             """
+    #             """
+    #             if pose == cls.RESTING_POINT_RIGHT:
+    #                 return cls.RESTING
+
+    #             if pose == cls.POINT_RIGHT:
+    #                 return cls.CROSSED
+
+    #     class ExprSet(object):
+    #         """
+    #         Sets of expressions we're going to use for battleship dialogues
+    #         """
+    #         # NOTE: codes are pose-agnostic
+
+    #         SURPRISED = "wud"
+    #         PIKACHU_SURPRISED = "wuo"
+    #         SMILE_EYES_NORMAL = "eua"
+    #         SMILE_EYES_LEFT = "lua"
+    #         SMILE_EYES_HAPPY = "hua"
+    #         SMILE_EYES_SMUG = "tua"
+    #         SMILE_EYES_SMUG_LEFT = "mua"
+    #         SMUG_EYES_NORMAL = "euu"
+    #         SMUG_EYES_SMUG = "tuu"
+    #         SMUG_EYES_LEFT = "luu"
+    #         SMUG_EYES_SMUG_LEFT = "muu"
+    #         # POUT_EYES_LEFT = "lsp"
+    #         TALK_EYES_NORMAL = "eub"
+    #         TALK_EYES_SMUG = "tub"
+    #         TALK_EYES_LEFT = "lub"
+    #         TALK_EYES_HAPPY = "hub"
+    #         TALK_EYES_SMUG_LEFT = "mub"
+    #         THINKING_EYES_LEFT = "ltc"
+
+    #     def __init__(self):
+    #         self._pose = Pose.RESTING
+    #         self._next_pose = Pose.CROSSED
+    #         self._turns_without_pose_change = 0
+    #         self._should_switch_pose = False
+
+    #     def check_want_change_pose(self):
+    #         if self._pose in (Pose.RESTING, Pose.CROSSED) and self._turns_without_pose_change > 2:
+    #             self._next_pose = Pose.switch_pose(self._pose)
+    #             self._should_switch_pose = True
+
+
+
 
     class Battleship(renpy.display.core.Displayable):
         """
@@ -259,11 +360,13 @@ init -10 python in mas_battleship:
         CELL_MISS = Image("/mod_assets/games/battleship/indicators/miss.png")
 
         ### Ships sprites
-        # TODO: sprites for broken/sunk ships?
         SHIP_5_SQUARES = Image("/mod_assets/games/battleship/ships/carrier.png")
         SHIP_4_SQUARES = Image("/mod_assets/games/battleship/ships/battleship.png")
         SHIP_3_SQUARES = Image("/mod_assets/games/battleship/ships/submarine.png")
         SHIP_2_SQUARES = Image("/mod_assets/games/battleship/ships/destroyer.png")
+
+        # Used for sunk ships
+        GREYOUT_MATRICX = store.im.matrix.desaturate() * store.im.matrix.brightness(-0.25)
 
         ALL_SHIP_SPRITES = (SHIP_5_SQUARES, SHIP_4_SQUARES, SHIP_3_SQUARES, SHIP_2_SQUARES)
 
@@ -304,6 +407,8 @@ init -10 python in mas_battleship:
 
             self._is_sensitive = True
 
+            self._turn = 0
+            self._is_player_turn = False
             self._phase = self.GamePhase.PREPARATION
             self._win_state = self.WinState.UNKNOWN
 
@@ -314,10 +419,25 @@ init -10 python in mas_battleship:
             self._ship_sprites_cache = {}
 
             self._player = Player(self.SHIP_SET_CLASSIC)
-            self._monika = AIPlayer(self.SHIP_SET_CLASSIC)
+            self._monika = AIPlayer(self.SHIP_SET_CLASSIC, RandomStrategy(self))
 
             # FIXME: this is temp
             self._monika.grid.place_ships(Ship.build_ships(self._monika.ship_set))
+
+        def choose_first_player(self):
+            """
+            Decides who will shoot in the first turn, sets the flag
+            """
+            self._is_player_turn = random.random() < 0.5
+
+        def _switch_turn(self):
+            """
+            Switches turn between Monika and player
+            """
+            self._is_player_turn = not self._is_player_turn
+
+        def is_player_turn(self):
+            return self._is_player_turn
 
 
         def mark_player_won(self):
@@ -456,13 +576,56 @@ init -10 python in mas_battleship:
                 y + AXIS_OFFSET,
             )
 
-        def invoke_say(self, what):
+
+        @staticmethod
+        def _get_monika_expr():
+            """
+            Returns current Monika's expression
+
+            OUT:
+                str | None
+                    str will be of format like "1eua", "idle", etc
+            """
+            # NOTE: There's no renpy.get_attributes() in r6.12, so I will make one myself
+            # TODO: Don't forget to remove in r8
+            layer = renpy.exports.default_layer(None, "monika")
+
+            if not renpy.showing("monika", layer):
+                return None
+
+            ctx = renpy.game.context()
+            if not ctx:
+                return None
+
+            attrs = ctx.images.get_attributes(layer, "monika")
+            if not attrs:
+                return None
+
+            return attrs[0]
+
+        def invoke_say(self, what, expr=None, restore_expr=True):
             """
             Invokes renpy say from a new context allowing Monika speak mid game
+
+            IN:
+                what - str, what Monika will say
+                expr - str | None, the expression to show if any
+                restore_expr - bool, if an expr was given and this parameter is True,
+                    then after the dialogue the expression will return to the previous one
             """
             previous_is_sensitive = self._is_sensitive
             self._is_sensitive = False
+
+            prev_expr = None
+            if expr:
+                prev_expr = self._get_monika_expr()
+                renpy.show("monika {}".format(expr))
+
             renpy.invoke_in_new_context(renpy.say, store.m, what, interact=True)
+
+            if expr and prev_expr and restore_expr:
+                renpy.show("monika {}".format(prev_expr))
+
             self._is_sensitive = previous_is_sensitive
 
 
@@ -538,13 +701,17 @@ init -10 python in mas_battleship:
             OUT:
                 sprite (a Transform obj)
             """
-            # NOTE: Sprites are headed up, but in our system 0 degrees is right, NOT up
-            # so we need to adjust the angle to avoid rotation
-            angle = ship.orientation - Ship.Orientation.UP
-            sprite = self.SHIP_SPRITES_MAP[ship.length]
-            key = (ship.length, ship.orientation)
+            key = (ship.length, ship.orientation, ship.is_alive())
 
             if key not in self._ship_sprites_cache:
+                # NOTE: Sprites are headed up, but in our system 0 degrees is right, NOT up
+                # so we need to adjust the angle to avoid rotation
+                angle = ship.orientation - Ship.Orientation.UP
+                sprite = self.SHIP_SPRITES_MAP[ship.length]
+                if not ship.is_alive():
+                    # TODO: use matrices in r8
+                    sprite = store.im.MatrixColor(sprite, self.GREYOUT_MATRICX)
+
                 self._ship_sprites_cache[key] = Transform(
                     child=sprite,
                     xanchor=0.5,
@@ -570,7 +737,6 @@ init -10 python in mas_battleship:
             grid_background_render = renpy.render(self.GRID_BACKGROUND, width, height, st, at)
             grid_frame_render = renpy.render(self.GRID_FRAME, width, height, st, at)
             grid_render = renpy.render(self.GRID, width, height, st, at)
-            # TODO: separate water sprites for each grid so we get unique water movement
             water_layer_render = renpy.render(self.WATER_LAYER, width, height, st, at)
             # Now blit 'em
             main_render.subpixel_blit(grid_background_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
@@ -674,7 +840,7 @@ init -10 python in mas_battleship:
 
             return main_render
 
-        def redraw_now(self):
+        def _redraw_now(self):
             """
             Requests redraw ASAP
             """
@@ -692,7 +858,7 @@ init -10 python in mas_battleship:
 
                     self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
-                    self.redraw_now()
+                    self._redraw_now()
                     return True
 
                 # If the player's pressed the keybinding for rotating while hovering over a ship, rotate it
@@ -715,19 +881,19 @@ init -10 python in mas_battleship:
                     self._player.grid.place_ship(ship)
                     self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
-                    self.redraw_now()
+                    self._redraw_now()
                     return True
 
             # # # The player moves the mouse, we may need to update the screen
             elif ev.type == pygame.MOUSEMOTION:
                 # Continue to update the screen while the player's dragging a ship
                 if self._dragged_ship is not None:
-                    self.redraw_now()
+                    self._redraw_now()
 
                 coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
                 if coords != self._hovered_cell:
                     self._hovered_cell = coords
-                    self.redraw_now()
+                    self._redraw_now()
                     self._update_screens()
                     # NOTE: usually we want to pass mousemoution events to other dispalyable
                     # but since we have to update screens here, this causes lag,
@@ -749,7 +915,7 @@ init -10 python in mas_battleship:
                 ship.drag_coords = coords
                 self._dragged_ship = ship
 
-                self.redraw_now()
+                self._redraw_now()
                 return True
 
             # # # The player releases the mouse button and places the ship on the grid
@@ -781,7 +947,7 @@ init -10 python in mas_battleship:
                 self._grid_conflicts[:] = self._player.grid.get_conflicts()
                 self._dragged_ship = None
 
-                self.redraw_now()
+                self._redraw_now()
                 return True
 
         def _handle_action_events(self, ev, x, y, st):
@@ -790,7 +956,7 @@ init -10 python in mas_battleship:
                 coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
                 if coords != self._hovered_cell:
                     self._hovered_cell = coords
-                    self.redraw_now()
+                    self._redraw_now()
                     self._update_screens()
                     # NOTE: usually we want to pass mousemoution events to other dispalyable
                     # but since we have to update screens here, this causes lag,
@@ -799,6 +965,9 @@ init -10 python in mas_battleship:
 
             # # # The player releases the mouse button potentially shooting
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
+                if not self.is_player_turn():
+                    return
+
                 coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
                 if coords is None:
                     return
@@ -819,8 +988,42 @@ init -10 python in mas_battleship:
                             self.set_phase_done()
                             self.mark_player_won()
 
-                self.redraw_now()
+                self._switch_turn()
+                self._redraw_now()
                 return True
+
+        def handle_monika_turn(self):
+            if self.is_player_turn():
+                return
+
+            coords = self._monika.pick_cell_for_attack()
+            if coords is None:
+                return
+
+            if self._monika.has_shot_at(coords):
+                # This should never happen!
+                self._switch_turn()
+                return
+
+            quip = self._monika.pick_turn_start_quip(self)
+            if quip is not None:
+                self.invoke_say(quip[1], quip[0])
+            else:
+                renpy.pause(0.3)
+
+            ship = self._player.grid.get_ship_at(coords[0], coords[1])
+            if ship is None:
+                self._monika.register_miss(coords)
+
+            else:
+                self._monika.register_hit(coords)
+                ship.take_hit()
+                if not ship.is_alive():
+                    if self._player.has_lost_all_ships():
+                        self.set_phase_done()
+                        self.mark_monika_won()
+
+            self._switch_turn()
 
         def event(self, ev, x, y, st):
             """
@@ -859,6 +1062,7 @@ init -10 python in mas_battleship:
                 self.SHIP_3_SQUARES,
                 self.SHIP_2_SQUARES,
             ]
+
 
     class Grid(object):
         """
@@ -1270,6 +1474,7 @@ init -10 python in mas_battleship:
                 else:
                     return
 
+
     class Ship(object):
         """
         TODO: make this a displayable
@@ -1574,6 +1779,7 @@ init -10 python in mas_battleship:
             """
             return [cls.build_ship(0, 0, ship_type) for ship_type in ship_set]
 
+
     class Player(object):
         """
         Meat battleship player
@@ -1596,6 +1802,20 @@ init -10 python in mas_battleship:
                 sorted(self._hits),
                 sorted(self._misses),
             )
+
+        def get_total_alive_ships(self):
+            """
+            Returns a number of ships that are "alive"
+
+            OUT:
+                int
+            """
+            counter = 0
+            for ship in self.grid.iter_ships():
+                if ship.is_alive():
+                    counter += 1
+
+            return counter
 
         def has_lost_all_ships(self):
             """
@@ -1664,18 +1884,233 @@ init -10 python in mas_battleship:
             """
             return iter(self._misses)
 
+    class _Quip(object):
+        """
+        A set of possible expressions and dialogue lines to pick from
+
+        This automatically adds {w=}{nw} to the lines, so player don't have to click for each quip
+        """
+        def __init__(self, exprs, lines):
+            """
+            Creates a new quip
+
+            IN:
+                exprs - an iterable of expressions (str) that can be used with this quip
+                    NOTE: can be passed as a single str if there's just one option
+                lines - an iterable of str that can be displayed in dialogue
+                    NOTE: can be passed as a single str if there's just one option
+            """
+            if isinstance(exprs, str):
+                exprs = (exprs,)
+
+            if isinstance(lines, str):
+                lines = (lines,)
+
+            if not exprs:
+                raise ValueError("must provide at least one expression")
+            if not lines:
+                raise ValueError("must provide at least one line")
+
+            self.exprs = exprs
+            self.lines = lines
+
+        def pick(self):
+            """
+            Picks an expr and a line from this quip
+
+            OUT:
+                tuple of exprs (str) and dlg (str)
+            """
+            if len(self.exprs) == 1:
+                expr = self.exprs[0]
+            else:
+                expr = random.choice(self.exprs)
+
+            if len(self.lines) == 1:
+                line = self.lines[0]
+            else:
+                line = random.choice(self.lines)
+
+            line += "{w=1.0}{nw}"
+
+            return (expr, line)
+
+    class _QuipSet(object):
+        def __init__(self, *quips):
+            """
+            Creates a new quip set
+
+            IN:
+                quips - _Quip objects
+            """
+            if not quips:
+                raise ValueError("must provide at least one quip")
+
+            self.quips = quips
+
+        def pick(self):
+            """
+            Picks a quip from this set
+
+            OUT:
+                tuple of exprs (str) and dlg (str)
+            """
+            if len(self.quips) == 1:
+                quip = self.quips[0]
+            else:
+                quip = random.choice(self.quips)
+
+            return quip.pick()
+
     class AIPlayer(Player):
         """
         Steal and circuits battleship player
         """
-        def __init__(self, ship_set):
+
+        _LINES_TURN_START_COMMON_0 = (
+            _("Where are your ships I wonder.{w=0.1}.{w=0.1}.{w=0.1}"),
+            _("Where could your ships be.{w=0.1}.{w=0.1}.{w=0.1}"),
+            _("Where are your ships.{w=0.1}.{w=0.1}.{w=0.1}"),
+            _("I wonder where your ships are.{w=0.1}.{w=0.1}.{w=0.1}"),
+        )
+        # Monika has many ships, player has more than 1 ship
+        TURN_START_TEASE = _QuipSet(
+            _Quip(
+                exprs=("1mta", "2mta", "1mtu", "2mtu"),
+                lines=_LINES_TURN_START_COMMON_0,
+            ),
+        )
+        # Monika has a few ships, player has more than 1
+        TURN_START_NORM = _QuipSet(
+            _Quip(
+                exprs=("1lta", "2lta"),
+                lines=_LINES_TURN_START_COMMON_0,
+            ),
+            _Quip(
+                exprs=("1lua", "2lua", "1luu", "2luu"),
+                lines=(
+                    "Let's see.{w=0.1}.{w=0.1}.{w=0.1}",
+                    "Hmmm.{w=0.1}.{w=0.1}.{w=0.1}",
+                ),
+            ),
+        )
+        # Monika has 1-2 ships, player has more than 1
+        TURN_START_WORRY = _QuipSet(
+            _Quip(
+                exprs=("2ltsdra", "2ltsdla"),
+                lines=(
+                    _LINES_TURN_START_COMMON_0
+                    + (
+                        "[player], I'm your girlfriend after all...{w=0.3}you could go a little bit easier on me~",
+                        "Hmmm.{w=0.1}.{w=0.1}.{w=0.1}",
+                    )
+                ),
+            ),
+            _Quip(
+                exprs=("2etsdra", "2eksdlu", "2ltsdra", "2ltsdla"),
+                lines="[player], I'm your girlfriend after all...{w=0.3}you could go a little bit easier on me~",
+            ),
+        )
+        # Monika has some ships, player has just one
+        TURN_START_GREAT = _QuipSet(
+            _Quip(
+                exprs=("1mta", "2mta", "1mtu", "2mtu"),
+                lines=(
+                    _("Where is your last ships I wonder.{w=0.1}.{w=0.1}.{w=0.1}"),
+                    _("Where could your last ship be.{w=0.1}.{w=0.1}.{w=0.1}"),
+                    _("Where's your last ship.{w=0.1}.{w=0.1}.{w=0.1}"),
+                    _("I wonder where is your last ship is.{w=0.1}.{w=0.1}.{w=0.1}"),
+                ),
+            ),
+        )
+
+        LOST_SHIP_NORM = _QuipSet(
+            _Quip(
+                exprs=("2etp", "2rtp"),
+                lines=(
+                    "Aww...",
+                    "That's unfortunate...",
+                    "Unlucky...",
+                ),
+            ),
+        )
+
+        SUNK_SHIP_NORM = _QuipSet(
+            _Quip(
+                exprs=("1efu", "21efu", "1tfu", "2tfu", "1huu", "2huu"),
+                lines=(
+                    "Ehehe~",
+                    "There we go~",
+                    "What was that?~",
+                    "Ooops~",
+                ),
+            ),
+        )
+
+        def __init__(self, ship_set, strategy):
             """
             Constructor for AI player
             """
             super(AIPlayer, self).__init__(ship_set)
+            self.strategy = strategy
 
-        def play_turn(self):
+        def pick_cell_for_attack(self):
             """
             AI plays turn
+
+            OUT:
+                tuple of coordinates
             """
-            return
+            return self.strategy.pick_cell_for_attack()
+
+        def pick_turn_start_quip(self, game):
+            """
+            Returns a quip for Monika's turn start
+
+            IN:
+                game - the game object
+
+            OUT:
+                a tuple of the expression and line or None
+            """
+            if random.random() > 0.1:
+                return None
+
+            player_ships_count = game._player.get_total_alive_ships()
+            monika_ships_count = game._monika.get_total_alive_ships()
+            ship_diff = player_ships_count - monika_ships_count
+
+            if ship_diff >= 2 and monika_ships_count <= 2:
+                return self.TURN_START_WORRY.pick()
+
+            if player_ships_count == 1 and monika_ships_count > 1:
+                return self.TURN_START_GREAT.pick()
+
+            if ship_diff <= -2 and monika_ships_count >= 3:
+                return self.TURN_START_WORRY.pick()
+
+            return self.TURN_START_NORM.pick()
+
+
+    ### abc.ABC sucks in py2, so just imagine it's here
+    ### TODO: in r8 use abc or better Protocol for the interface
+
+    class RandomStrategy(object):
+        """
+        AI will pick random cells to shoot at
+        """
+        def __init__(self, game, available_cells=None):
+            self.game = game
+            if available_cells is None:
+                self.available_cells = set(
+                    (col, row)
+                    for row in range(Grid.HEIGHT)
+                    for col in range(Grid.WIDTH)
+                )
+            else:
+                self.available_cells = available_cells
+
+        def pick_cell_for_attack(self):
+            cell = random.choice(tuple(self.available_cells))
+            self.available_cells.remove(cell)
+            return cell
