@@ -542,6 +542,9 @@ init -10 python in mas_battleship:
 
             NOTE: returning a non-None value is important, this way we end the interaction
             from the screen action
+
+            OUT:
+                bool - success or not
             """
             if not self.is_in_preparation():
                 return False
@@ -955,6 +958,7 @@ init -10 python in mas_battleship:
         def event(self, ev, x, y, st):
             """
             Event handler
+            TODO: support playing with just a keyboard
             """
             # Update internal mouse coords
             self._last_mouse_x = x
@@ -1397,10 +1401,10 @@ init -10 python in mas_battleship:
             Orientation consts
             TODO: turn this into enum
             """
-            UP = 270# 0
-            RIGHT = 0# 90
-            DOWN = 90# 180
-            LEFT = 180# 270
+            UP = 270
+            RIGHT = 0
+            DOWN = 90
+            LEFT = 180
 
             @classmethod
             def get_all(cls):
@@ -1414,15 +1418,21 @@ init -10 python in mas_battleship:
             def is_horizontal(cls, value):
                 return value in (cls.RIGHT, cls.LEFT)
 
-        def __init__(self, x, y, length, orientation):
+        def __init__(self, bow_coords, type_, orientation):
             """
+            Constructor for new ship
+
+            IN:
+                bow_coords - tuple[int, int] - coordinates for the ship bow
+                type_ - int - ship type (aka length)
+                orientation - Ship.Orientation - ship direction
             """
-            self.bow_coords = (x, y)
-            self._length = length
+            self.bow_coords = bow_coords
+            self._type = type_
             self._orientation = orientation
 
-            self._health = length
-            self.drag_coords = self.bow_coords
+            self._health = type_
+            self.drag_coords = bow_coords
 
         def __repr__(self):
             return "<{0}: (at: {1}, size: {2}, hp: {3})>".format(
@@ -1431,6 +1441,37 @@ init -10 python in mas_battleship:
                 self.length,
                 self._health,
             )
+
+        @property
+        def length(self):
+            """
+            Prop getter for length
+            """
+            return self._type
+
+        @property
+        def orientation(self):
+            """
+            Prop getter for orientation
+            """
+            return self._orientation
+
+        @orientation.setter
+        def orientation(self, value):
+            """
+            Prop setter for orientation
+            NOTE: this assumes that we rotate the ship around its bow
+            NOTE: allowed angles are 0, 90, 180, and 270
+            """
+            value %= 360
+
+            if (
+                value == self._orientation
+                or value % 90 != 0
+            ):
+                return
+
+            self._orientation = value
 
         def is_alive(self):
             return self._health > 0
@@ -1523,37 +1564,6 @@ init -10 python in mas_battleship:
             self._orientation += angle
             self._orientation %= 360
 
-        @property
-        def length(self):
-            """
-            Prop getter for length
-            """
-            return self._length
-
-        @property
-        def orientation(self):
-            """
-            Prop getter for orientation
-            """
-            return self._orientation
-
-        @orientation.setter
-        def orientation(self, value):
-            """
-            Prop setter for orientation
-            NOTE: this assumes that we rotate the ship around its bow
-            NOTE: allowed angles are 0, 90, 180, and 270
-            """
-            value %= 360
-
-            if (
-                value == self._orientation
-                or value % 90 != 0
-            ):
-                return
-
-            self._orientation = value
-
         def get_drag_offset_from_bow(self):
             """
             Returns offset from where the player drags the ship to its bow
@@ -1574,7 +1584,7 @@ init -10 python in mas_battleship:
             """
             base_x = self.bow_coords[0]
             base_y = self.bow_coords[1]
-            length = self._length
+            length = self.length
 
             ship = []
             spacing = []
@@ -1644,7 +1654,7 @@ init -10 python in mas_battleship:
             OUT:
                 new Ship objects with the same params as this one
             """
-            ship = Ship(self.bow_coords[0], self.bow_coords[1], self._length, self._orientation)
+            ship = Ship(self.bow_coords, self.length, self.orientation)
 
             ship._health = self._health
             ship.drag_coords = self.drag_coords
@@ -1652,14 +1662,13 @@ init -10 python in mas_battleship:
             return ship
 
         @classmethod
-        def build_ship(cls, x, y, length, orientation=None):
+        def build_ship(cls, bow_coords, type_, orientation=None):
             """
             Builds a ship
 
             IN:
-                x - x coord for the ship bow
-                y - y coord for the ship bow
-                length - int - ship length
+                bow_coords - tuple[int, int] - coordinates for the ship bow
+                type_ - int - ship type (length)
                 orientation - Ship.Orientation - if None, it will be chosen at random
                     (Default: None)
 
@@ -1669,7 +1678,7 @@ init -10 python in mas_battleship:
             if orientation is None:
                 orientation = random.choice(cls.Orientation.get_all())
 
-            return cls(x, y, length, orientation)
+            return cls(bow_coords, type_, orientation)
 
         @classmethod
         def build_ships(cls, ship_set):
@@ -1682,7 +1691,7 @@ init -10 python in mas_battleship:
             OUT:
                 list of Ship objects
             """
-            return [cls.build_ship(0, 0, ship_type) for ship_type in ship_set]
+            return [cls.build_ship((0, 0), ship_type) for ship_type in ship_set]
 
 
     class Player(object):
