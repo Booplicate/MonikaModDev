@@ -229,6 +229,27 @@ init -10 python in mas_battleship:
         """
         mas_log.error("Battleship: {}".format(msg))
 
+
+    class ShipType(object):
+        """
+        Represent available ship types for the game
+        TODO: replace with real enum
+        """
+        CARRIER = 0
+        BATTLESHIP = 1
+        SUBMARINE = 2
+        CRUISER = 3
+        DESTROYER = 4
+
+    SHIP_TYPE_TO_LENGTH = {
+        ShipType.CARRIER: 5,
+        ShipType.BATTLESHIP: 4,
+        ShipType.SUBMARINE: 3,
+        ShipType.CRUISER: 3,
+        ShipType.DESTROYER: 2,
+    }
+
+
     class Battleship(renpy.display.core.Displayable):
         """
         Event handler, render, and main logic for the game
@@ -237,8 +258,6 @@ init -10 python in mas_battleship:
         GRID_HEIGHT = 378
         GRID_WIDTH = GRID_HEIGHT
         GRID_SPACING = 5
-
-        # PLAYER_FIELD_SIZE = 338
 
         CELL_HEIGHT = 32
         CELL_WIDTH = CELL_HEIGHT
@@ -253,10 +272,12 @@ init -10 python in mas_battleship:
         TRACKING_GRID_ORIGIN_Y = MAIN_GRID_ORIGIN_Y
         TRACKING_GRID_ORIGIN = (TRACKING_GRID_ORIGIN_X, TRACKING_GRID_ORIGIN_Y)
 
+        GAME_ASSETS_FOLDER = "/mod_assets/games/battleship/"
+
         ### Grid sprites
-        GRID_BACKGROUND = Image("/mod_assets/games/battleship/grid/background.png")
-        GRID_FRAME = Image("/mod_assets/games/battleship/grid/frame.png")
-        GRID = Image("/mod_assets/games/battleship/grid/grid.png")
+        GRID_BACKGROUND = Image(GAME_ASSETS_FOLDER + "grid/background.png")
+        GRID_FRAME = Image(GAME_ASSETS_FOLDER + "grid/frame.png")
+        GRID_FOREGROUND = Image(GAME_ASSETS_FOLDER + "grid/grid.png")
 
         # HACK: The animated sprite is blinking at the edges, probably due to incorrect blitting and pixel smudging
         # I come up with a hack: we render this layer 2px bigger and overlap its edges with the grid frame
@@ -264,7 +285,7 @@ init -10 python in mas_battleship:
 
         WATER_LAYER = store.Transform(
             store.mas_battleship_water_transform(
-                child=Image("/mod_assets/games/battleship/water_loop.png"),
+                child=Image(GAME_ASSETS_FOLDER + "water_loop.png"),
                 width=1024,
                 height=1024,
             ),
@@ -273,29 +294,41 @@ init -10 python in mas_battleship:
         )
 
         ### Indicators
-        CELL_HOVER = Image("/mod_assets/games/battleship/indicators/hover.png")
-        CELL_CONFLICT = Image("/mod_assets/games/battleship/indicators/conflict.png")
-        CELL_HIT = Image("/mod_assets/games/battleship/indicators/hit.png")
-        CELL_MISS = Image("/mod_assets/games/battleship/indicators/miss.png")
+        CELL_HOVER = Image(GAME_ASSETS_FOLDER + "indicators/hover.png")
+        CELL_CONFLICT = Image(GAME_ASSETS_FOLDER + "indicators/conflict.png")
+        CELL_HIT = Image(GAME_ASSETS_FOLDER + "indicators/hit.png")
+        CELL_MISS = Image(GAME_ASSETS_FOLDER + "indicators/miss.png")
 
         ### Ships sprites
-        SHIP_5_SQUARES = Image("/mod_assets/games/battleship/ships/carrier.png")
-        SHIP_4_SQUARES = Image("/mod_assets/games/battleship/ships/battleship.png")
-        SHIP_3_SQUARES = Image("/mod_assets/games/battleship/ships/submarine.png")
-        SHIP_2_SQUARES = Image("/mod_assets/games/battleship/ships/destroyer.png")
+        CARRIER_SPRITE = Image(GAME_ASSETS_FOLDER + "ships/carrier.png")
+        BATTLESHIP_SPRITE = Image(GAME_ASSETS_FOLDER + "ships/battleship.png")
+        SUBMARINE_SPRITE = Image(GAME_ASSETS_FOLDER + "ships/submarine.png")
+        CRUISER_SPRITE = Image(GAME_ASSETS_FOLDER + "ships/cruiser.png")
+        DESTROYER_SPRITE = Image(GAME_ASSETS_FOLDER + "ships/destroyer.png")
 
         # Used for sunk ships
         GREYOUT_MATRIX = store.im.matrix.desaturate() * store.im.matrix.brightness(-0.25)
 
-        ALL_SHIP_SPRITES = (SHIP_5_SQUARES, SHIP_4_SQUARES, SHIP_3_SQUARES, SHIP_2_SQUARES)
+        SHIP_TYPE_TO_SPRITE = {
+            ShipType.CARRIER: Image(GAME_ASSETS_FOLDER + "ships/carrier.png"),
+            ShipType.BATTLESHIP: Image(GAME_ASSETS_FOLDER + "ships/battleship.png"),
+            ShipType.SUBMARINE: Image(GAME_ASSETS_FOLDER + "ships/submarine.png"),
+            ShipType.CRUISER: Image(GAME_ASSETS_FOLDER + "ships/cruiser.png"),
+            ShipType.DESTROYER: Image(GAME_ASSETS_FOLDER + "ships/destroyer.png"),
+        }
 
-        ALL_SHIPS_TYPES = (5, 4, 3, 2)
-
-        SHIP_SET_CLASSIC = (5, 4, 4, 3, 3, 3, 2, 2, 2, 2)
-
-        # Map between ship types and sprites
-        # TODO: support multiple sprites for one ship type?
-        SHIP_SPRITES_MAP = OrderedDict(zip(ALL_SHIPS_TYPES, ALL_SHIP_SPRITES))
+        SHIP_PRESET_CLASSIC = (
+            ShipType.CARRIER,
+            ShipType.BATTLESHIP,
+            ShipType.BATTLESHIP,
+            ShipType.SUBMARINE,
+            ShipType.CRUISER,
+            ShipType.CRUISER,
+            ShipType.DESTROYER,
+            ShipType.DESTROYER,
+            ShipType.DESTROYER,
+            ShipType.DESTROYER,
+        )
 
         class GamePhase(object):
             """
@@ -337,8 +370,8 @@ init -10 python in mas_battleship:
 
             self._ship_sprites_cache = {}
 
-            self._player = Player(self.SHIP_SET_CLASSIC)
-            self._monika = AIPlayer(self.SHIP_SET_CLASSIC, HunterStrategy())
+            self._player = Player()
+            self._monika = AIPlayer(HunterStrategy())
 
         def choose_first_player(self):
             """
@@ -399,10 +432,10 @@ init -10 python in mas_battleship:
                 if player.grid.has_conflicts():
                     return False
 
-                set_ships = Counter(player.ship_set)
-                grid_ships = Counter(ship.length for ship in player.iter_ships())
+                preset_ships = Counter(self.SHIP_PRESET_CLASSIC)
+                grid_ships = Counter(ship.type for ship in player.iter_ships())
 
-                if set_ships != grid_ships:
+                if preset_ships != grid_ships:
                     return False
 
             return True
@@ -461,6 +494,7 @@ init -10 python in mas_battleship:
                 bool
             """
             self._phase = self.GamePhase.DONE
+            self._hovered_cell = None
             self._is_sensitive = False
             return True
 
@@ -579,7 +613,7 @@ init -10 python in mas_battleship:
                 return False
 
             self._player.grid.clear()
-            self._player.grid.place_ships(Ship.build_ships(self._player.ship_set))
+            self._player.grid.place_ships(Ship.build_ships(self.SHIP_PRESET_CLASSIC))
             self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
             return True
@@ -589,7 +623,7 @@ init -10 python in mas_battleship:
             Builds and places ships for monika
             """
             self._monika.grid.clear()
-            self._monika.grid.place_ships(Ship.build_ships(self._monika.ship_set))
+            self._monika.grid.place_ships(Ship.build_ships(self.SHIP_PRESET_CLASSIC))
 
         @classmethod
         def _grid_coords_to_screen_coords(cls, coords, grid_origin):
@@ -642,27 +676,27 @@ init -10 python in mas_battleship:
             Returns a sprite for a ship using cache system (generates if needed, retrives if already generated)
 
             IN:
-                ship - ship to get sprite for
+                ship - Ship - the ship obj to get a sprite for
 
             OUT:
-                sprite (a Transform obj)
+                Transform - ship sprite
             """
-            key = (ship.length, ship.orientation, ship.is_alive())
+            key = (ship.type, ship.orientation, ship.is_alive())
 
             if key not in self._ship_sprites_cache:
                 # NOTE: Sprites are headed up, but in our system 0 degrees is right, NOT up
                 # so we need to adjust the angle to avoid rotation
                 angle = ship.orientation - Ship.Orientation.UP
-                sprite = self.SHIP_SPRITES_MAP[ship.length]
+                sprite = self.SHIP_TYPE_TO_SPRITE[ship.type]
                 if not ship.is_alive():
-                    # TODO: use matrices in r8
+                    # TODO: use transform matrices in r8
                     sprite = store.im.MatrixColor(sprite, self.GREYOUT_MATRIX)
 
                 self._ship_sprites_cache[key] = Transform(
                     child=sprite,
                     xanchor=0.5,
-                    yanchor=16,
-                    offset=(16, 16),
+                    yanchor=self.CELL_HEIGHT // 2,
+                    offset=(self.CELL_HEIGHT // 2, self.CELL_HEIGHT // 2),
                     transform_anchor=True,
                     rotate_pad=False,
                     subpixel=True,
@@ -682,7 +716,7 @@ init -10 python in mas_battleship:
             # Predefine renders
             grid_background_render = renpy.render(self.GRID_BACKGROUND, width, height, st, at)
             grid_frame_render = renpy.render(self.GRID_FRAME, width, height, st, at)
-            grid_render = renpy.render(self.GRID, width, height, st, at)
+            grid_foreground_render = renpy.render(self.GRID_FOREGROUND, width, height, st, at)
             water_layer_render = renpy.render(self.WATER_LAYER, width, height, st, at)
             # Now blit 'em
             main_render.subpixel_blit(grid_background_render, self.MAIN_GRID_ORIGIN)
@@ -694,7 +728,7 @@ init -10 python in mas_battleship:
                 ),
             )
             main_render.subpixel_blit(grid_frame_render, self.MAIN_GRID_ORIGIN)
-            main_render.subpixel_blit(grid_render, self.MAIN_GRID_ORIGIN)
+            main_render.subpixel_blit(grid_foreground_render, self.MAIN_GRID_ORIGIN)
 
             # Render Monika's grid only during the game phase
             if self.is_in_action() or self.is_done():
@@ -707,7 +741,7 @@ init -10 python in mas_battleship:
                     ),
                 )
                 main_render.subpixel_blit(grid_frame_render, self.TRACKING_GRID_ORIGIN)
-                main_render.subpixel_blit(grid_render, self.TRACKING_GRID_ORIGIN)
+                main_render.subpixel_blit(grid_foreground_render, self.TRACKING_GRID_ORIGIN)
 
             # Render conflicts
             if self.is_in_preparation():
@@ -1002,24 +1036,22 @@ init -10 python in mas_battleship:
             elif self.is_in_action():
                 return self._handle_action_events(ev, x, y, st)
 
-            # TODO: use ignroeevent and only return True when the game is over, this'd allow to remove the loop from the label?
-            # but this could cause problems with rollback
-            return
+            return None
 
         def visit(self):
             return [
                 self.GRID_BACKGROUND,
                 self.GRID_FRAME,
-                self.GRID,
+                self.GRID_FOREGROUND,
                 self.WATER_LAYER,
                 self.CELL_HOVER,
                 self.CELL_CONFLICT,
                 self.CELL_HIT,
                 self.CELL_MISS,
-                self.SHIP_5_SQUARES,
-                self.SHIP_4_SQUARES,
-                self.SHIP_3_SQUARES,
-                self.SHIP_2_SQUARES,
+                self.CARRIER_SPRITE,
+                self.BATTLESHIP_SPRITE,
+                self.SUBMARINE_SPRITE,
+                self.DESTROYER_SPRITE,
             ]
 
 
@@ -1422,7 +1454,7 @@ init -10 python in mas_battleship:
 
     class Ship(object):
         """
-        TODO: make this a displayable
+        Represents a ship on the grid
         """
         class Orientation(object):
             """
@@ -1446,42 +1478,43 @@ init -10 python in mas_battleship:
             def is_horizontal(cls, value):
                 return value in (cls.RIGHT, cls.LEFT)
 
-        def __init__(self, bow_coords, type_, orientation):
+        def __init__(self, bow_coords, type_, length, orientation):
             """
             Constructor for new ship
 
             IN:
                 bow_coords - tuple[int, int] - coordinates for the ship bow
-                type_ - int - ship type (aka length)
+                type_ - int - ship type
+                length - int - ship length
                 orientation - Ship.Orientation - ship direction
             """
             self.bow_coords = bow_coords
             self._type = type_
+            self._length = length
             self._orientation = orientation
 
-            self._health = type_
+            self._health = length
             self.drag_coords = bow_coords
 
         def __repr__(self):
-            return "<{0}: (at: {1}, size: {2}, hp: {3})>".format(
+            return "<{0}: (at: {1}, type: {2}, len: {3}, hp: {4})>".format(
                 type(self).__name__,
                 self.bow_coords,
+                self.type,
                 self.length,
-                self._health,
+                self.health,
             )
 
         @property
         def length(self):
-            """
-            Prop getter for length
-            """
+            return self._length
+
+        @property
+        def type(self):
             return self._type
 
         @property
         def orientation(self):
-            """
-            Prop getter for orientation
-            """
             return self._orientation
 
         @orientation.setter
@@ -1595,7 +1628,6 @@ init -10 python in mas_battleship:
         def get_drag_offset_from_bow(self):
             """
             Returns offset from where the player drags the ship to its bow
-            TODO: Consider caching this value
             """
             offset = int(meth.hypot(self.bow_coords[0]-self.drag_coords[0], self.bow_coords[1]-self.drag_coords[1]))
             # Check if we need to invert it
@@ -1616,7 +1648,7 @@ init -10 python in mas_battleship:
             ship = []
             spacing = []
 
-            if self._orientation == self.Orientation.UP:
+            if self.orientation == self.Orientation.UP:
                 ship_xs = itertools.repeat(base_x, length)
                 ship_ys = range(base_y, base_y+length)
                 ship.extend(zip(ship_xs, ship_ys))
@@ -1629,7 +1661,7 @@ init -10 python in mas_battleship:
                     spacing.append((base_x - 1, y))
                     spacing.append((base_x + 1, y))
 
-            elif self._orientation == self.Orientation.RIGHT:
+            elif self.orientation == self.Orientation.RIGHT:
                 ship_xs = range(base_x, base_x-length, -1)
                 ship_ys = itertools.repeat(base_y, length)
                 ship.extend(zip(ship_xs, ship_ys))
@@ -1642,7 +1674,7 @@ init -10 python in mas_battleship:
                     spacing.append((x, base_y - 1))
                     spacing.append((x, base_y + 1))
 
-            elif self._orientation == self.Orientation.DOWN:
+            elif self.orientation == self.Orientation.DOWN:
                 ship_xs = itertools.repeat(base_x, length)
                 ship_ys = range(base_y, base_y-length, -1)
                 ship.extend(zip(ship_xs, ship_ys))
@@ -1677,7 +1709,7 @@ init -10 python in mas_battleship:
             OUT:
                 new Ship objects with the same params as this one
             """
-            ship = Ship(self.bow_coords, self.length, self.orientation)
+            ship = Ship(self.bow_coords, self.type, self.length, self.orientation)
 
             ship._health = self._health
             ship.drag_coords = self.drag_coords
@@ -1685,47 +1717,43 @@ init -10 python in mas_battleship:
             return ship
 
         @classmethod
-        def build_ship(cls, bow_coords, type_, orientation=None):
+        def build_ship(cls, type_):
             """
-            Builds a ship
+            Builds a ship with random orientation at (0, 0)
 
             IN:
-                bow_coords - tuple[int, int] - coordinates for the ship bow
-                type_ - int - ship type (length)
-                orientation - Ship.Orientation - if None, it will be chosen at random
-                    (Default: None)
+                type_ - int - ship type
 
             OUT:
                 Ship object
             """
-            if orientation is None:
-                orientation = random.choice(cls.Orientation.get_all())
+            length = SHIP_TYPE_TO_LENGTH[type_]
+            orientation = random.choice(cls.Orientation.get_all())
 
-            return cls(bow_coords, type_, orientation)
+            return cls((0, 0), type_, length, orientation)
 
         @classmethod
-        def build_ships(cls, ship_set):
+        def build_ships(cls, ship_preset):
             """
             Builds multiple ships using the given set
 
             IN:
-                ship_set - list of ship types
+                ship_preset - list of ship types
 
             OUT:
                 list of Ship objects
             """
-            return [cls.build_ship((0, 0), ship_type) for ship_type in ship_set]
+            return [cls.build_ship(ship_type) for ship_type in ship_preset]
 
 
     class Player(object):
         """
         Meat battleship player
         """
-        def __init__(self, ship_set):
+        def __init__(self):
             """
             Constructor
             """
-            self.ship_set = ship_set
             self.grid = Grid()
 
             # Sets of tuples with coordinates
@@ -2001,11 +2029,11 @@ init -10 python in mas_battleship:
             ),
         )
 
-        def __init__(self, ship_set, strategy):
+        def __init__(self, strategy):
             """
             Constructor for AI player
             """
-            super(AIPlayer, self).__init__(ship_set)
+            super(AIPlayer, self).__init__()
             self.strategy = strategy
             self._turns_without_quip = 0
 
