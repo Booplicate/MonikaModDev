@@ -1595,8 +1595,7 @@ init -10 python in mas_battleship:
                 ship.extend(zip(ship_xs, ship_ys))
 
                 for y in (base_y - 1, base_y + length):
-                    for x in range(base_x - 1, base_x + 2):
-                        spacing.append((x, y))
+                    spacing.append((base_x, y))
 
                 for i in range(length):
                     y = base_y + i
@@ -1609,8 +1608,7 @@ init -10 python in mas_battleship:
                 ship.extend(zip(ship_xs, ship_ys))
 
                 for x in (base_x - length, base_x + 1):
-                    for y in range(base_y - 1, base_y + 2):
-                        spacing.append((x, y))
+                    spacing.append((x, base_y))
 
                 for i in range(length):
                     x = base_x - i
@@ -1623,8 +1621,7 @@ init -10 python in mas_battleship:
                 ship.extend(zip(ship_xs, ship_ys))
 
                 for y in (base_y + 1, base_y - length):
-                    for x in range(base_x - 1, base_x + 2):
-                        spacing.append((x, y))
+                    spacing.append((base_x, y))
 
                 for i in range(length):
                     y = base_y - i
@@ -1637,8 +1634,7 @@ init -10 python in mas_battleship:
                 ship.extend(zip(ship_xs, ship_ys))
 
                 for x in (base_x - 1, base_x + length):
-                    for y in range(base_y - 1, base_y + 2):
-                        spacing.append((x, y))
+                    spacing.append((x, base_y))
 
                 for i in range(length):
                     x = base_x + i
