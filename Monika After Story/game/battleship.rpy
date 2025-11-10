@@ -2273,6 +2273,9 @@ init -10 python in mas_battleship:
                                 )
                             self.current_search_coords = self._pick_search_coords()
 
+                        if not self.current_search_coords:
+                            # Sanity check
+                            return None
                         # We have a direction we want to SEARCH and DESTROY
                         cell = self.current_search_coords.pop(0)
                         if game._player.grid.is_ship_at(cell):
@@ -2285,11 +2288,11 @@ init -10 python in mas_battleship:
                                 self.search_coords_down[:] = []
 
                         else:
-                            # Check that there's the ship, otherwise we can stop searching there
+                            # We hit water, we should stop searching here and pick new coords
                             # NOTE: Important, this also changes the original list in up/right/down/left
                             # Kind of hacky working with references, eh?
                             self.current_search_coords[:] = []
-                            self._prune_search_coords(game._player)
+                            self._prune_search_coords(min_ship_len)
                             self.current_search_coords = self._pick_search_coords()
 
                         self.mark_cell_used(cell)
