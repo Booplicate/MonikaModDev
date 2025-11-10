@@ -2033,7 +2033,7 @@ init -10 python in mas_battleship:
             OUT:
                 a tuple of the expression and line or None
             """
-            if random.random() > 0.1:
+            if random.random() > 0.05:
                 return None
 
             player_ships_count = game._player.get_total_alive_ships()
@@ -2043,10 +2043,10 @@ init -10 python in mas_battleship:
             if ship_diff >= 2 and monika_ships_count <= 2:
                 return self.TURN_START_WORRY.pick()
 
-            if player_ships_count == 1 and monika_ships_count > 1:
+            if player_ships_count == 1 and (monika_ships_count > 1 or random.random() > 0.5):
                 return self.TURN_START_GREAT.pick()
 
-            if ship_diff <= -2 and monika_ships_count >= 3:
+            if ship_diff <= -1 and monika_ships_count >= 2:
                 return self.TURN_START_TEASE.pick()
 
             return self.TURN_START_NORM.pick()
