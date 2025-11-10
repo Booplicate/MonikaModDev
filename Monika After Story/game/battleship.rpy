@@ -115,13 +115,14 @@ label mas_battleship_game_start:
 
     $ mas_battleship.game = mas_battleship.Battleship()
     # $ renpy.start_predict(mas_battleship.game)
+    $ mas_battleship.game.build_and_place_monika_ships()
     $ mas_battleship.game.build_and_place_player_ships()
     $ mas_battleship.game.choose_first_player()
 
     if mas_battleship.game.is_player_turn():
         m 3eua "Your turn first."
     else:
-        m 3hub "First turn is mine."
+        m 3hub "First turn is mine~"
 
     show monika 1eua at t31
     show screen mas_battleship_ui(mas_battleship.game)
@@ -132,7 +133,8 @@ label mas_battleship_game_loop:
     while not mas_battleship.game.is_done():
         if not mas_battleship.game.is_player_turn() and mas_battleship.game.is_in_action():
             $ mas_battleship.game.handle_monika_turn()
-        $ ui.interact(type="minigame")
+        if not mas_battleship.game.is_done():
+            $ ui.interact(type="minigame")
 
     pause 1.0
     # FALL THROUGH
@@ -329,10 +331,10 @@ init -10 python in mas_battleship:
         OUTER_FRAME_THICKNESS = 20
         INNER_GRID_THICKNESS = 2
 
-        MAIN_GRID_ORIGIN_X = 0 # config.screen_width - 2 * (GRID_WIDTH + GRID_SPACING)
-        MAIN_GRID_ORIGIN_Y = 0 # (config.screen_height - GRID_HEIGHT) // 2
-        TRACKING_GRID_ORIGIN_X = GRID_WIDTH + GRID_SPACING # config.screen_width - GRID_WIDTH - GRID_SPACING
-        TRACKING_GRID_ORIGIN_Y = MAIN_GRID_ORIGIN_Y # (config.screen_height - GRID_HEIGHT) // 2
+        MAIN_GRID_ORIGIN_X = 0
+        MAIN_GRID_ORIGIN_Y = 0
+        TRACKING_GRID_ORIGIN_X = GRID_WIDTH + GRID_SPACING
+        TRACKING_GRID_ORIGIN_Y = MAIN_GRID_ORIGIN_Y
 
         ### Grid sprites
         GRID_BACKGROUND = Image("/mod_assets/games/battleship/grid/background.png")
@@ -366,7 +368,7 @@ init -10 python in mas_battleship:
         SHIP_2_SQUARES = Image("/mod_assets/games/battleship/ships/destroyer.png")
 
         # Used for sunk ships
-        GREYOUT_MATRICX = store.im.matrix.desaturate() * store.im.matrix.brightness(-0.25)
+        GREYOUT_MATRIX = store.im.matrix.desaturate() * store.im.matrix.brightness(-0.25)
 
         ALL_SHIP_SPRITES = (SHIP_5_SQUARES, SHIP_4_SQUARES, SHIP_3_SQUARES, SHIP_2_SQUARES)
 
@@ -419,10 +421,7 @@ init -10 python in mas_battleship:
             self._ship_sprites_cache = {}
 
             self._player = Player(self.SHIP_SET_CLASSIC)
-            self._monika = AIPlayer(self.SHIP_SET_CLASSIC, RandomStrategy(self))
-
-            # FIXME: this is temp
-            self._monika.grid.place_ships(Ship.build_ships(self._monika.ship_set))
+            self._monika = AIPlayer(self.SHIP_SET_CLASSIC, HunterStrategy())
 
         def choose_first_player(self):
             """
@@ -484,7 +483,7 @@ init -10 python in mas_battleship:
                     return False
 
                 set_ships = Counter(player.ship_set)
-                grid_ships = Counter(ship.length for ship in player.grid.iter_ships())
+                grid_ships = Counter(ship.length for ship in player.iter_ships())
 
                 if set_ships != grid_ships:
                     return False
@@ -562,7 +561,7 @@ init -10 python in mas_battleship:
             that the player is hovering mouse above
 
             OUT:
-                str like "A1" or "J10"
+                str - like "A1" or "J10"
             """
             if not self._hovered_cell:
                 return "n/a"
@@ -583,8 +582,7 @@ init -10 python in mas_battleship:
             Returns current Monika's expression
 
             OUT:
-                str | None
-                    str will be of format like "1eua", "idle", etc
+                str | None - str will be of format like "1eua", "idle", etc
             """
             # NOTE: There's no renpy.get_attributes() in r6.12, so I will make one myself
             # TODO: Don't forget to remove in r8
@@ -621,7 +619,10 @@ init -10 python in mas_battleship:
                 prev_expr = self._get_monika_expr()
                 renpy.show("monika {}".format(expr))
 
+            # TODO: We may not need new context for say because we don't say anything mid interaction
+            # or just keep it for future?
             renpy.invoke_in_new_context(renpy.say, store.m, what, interact=True)
+            # renpy.say(store.m, "[player]"+what, interact=True)
 
             if expr and prev_expr and restore_expr:
                 renpy.show("monika {}".format(prev_expr))
@@ -631,7 +632,7 @@ init -10 python in mas_battleship:
 
         def build_and_place_player_ships(self):
             """
-            Builds and places ships for the player on the grid
+            Builds and places ships for the player
 
             NOTE: returning a non-None value is important, this way we end the interaction
             from the screen action
@@ -644,6 +645,13 @@ init -10 python in mas_battleship:
             self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
             return True
+
+        def build_and_place_monika_ships(self):
+            """
+            Builds and places ships for monika
+            """
+            self._monika.grid.clear()
+            self._monika.grid.place_ships(Ship.build_ships(self._monika.ship_set))
 
         @classmethod
         def _grid_coords_to_screen_coords(cls, x, y, grid_origin_x, grid_origin_y):
@@ -710,7 +718,7 @@ init -10 python in mas_battleship:
                 sprite = self.SHIP_SPRITES_MAP[ship.length]
                 if not ship.is_alive():
                     # TODO: use matrices in r8
-                    sprite = store.im.MatrixColor(sprite, self.GREYOUT_MATRICX)
+                    sprite = store.im.MatrixColor(sprite, self.GREYOUT_MATRIX)
 
                 self._ship_sprites_cache[key] = Transform(
                     child=sprite,
@@ -772,7 +780,7 @@ init -10 python in mas_battleship:
                         main_render.subpixel_blit(error_mask_render, (x, y))
 
             # Render player's ships
-            for ship in self._player.grid.iter_ships():
+            for ship in self._player.iter_ships():
                 ship_sprite = self._get_ship_sprite(ship)
                 x, y = self._grid_coords_to_screen_coords(ship.bow_coords[0], ship.bow_coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
                 main_render.place(ship_sprite, x, y)
@@ -780,7 +788,7 @@ init -10 python in mas_battleship:
             # # # Render things that only relevant during the game
             if not self.is_in_preparation():
                 # Render Monika's ships
-                for ship in self._monika.grid.iter_ships():
+                for ship in self._monika.iter_ships():
                     if not ship.is_alive():
                         ship_sprite = self._get_ship_sprite(ship)
                         x, y = self._grid_coords_to_screen_coords(ship.bow_coords[0], ship.bow_coords[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
@@ -865,11 +873,11 @@ init -10 python in mas_battleship:
                 else:
                     coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
                     if coords is None:
-                        return
+                        return None
 
                     ship = self._player.grid.get_ship_at(coords[0], coords[1])
                     if ship is None:
-                        return
+                        return None
 
                     if ev.mod in (pygame.KMOD_LSHIFT, pygame.KMOD_RSHIFT):
                         angle = -90
@@ -904,11 +912,11 @@ init -10 python in mas_battleship:
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
                 coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
                 if coords is None:
-                    return
+                    return None
 
                 ship = self._player.grid.get_ship_at(coords[0], coords[1])
                 if ship is None:
-                    return
+                    return None
 
                 self._player.grid.remove_ship(ship)
                 self._grid_conflicts[:] = self._player.grid.get_conflicts()
@@ -921,7 +929,7 @@ init -10 python in mas_battleship:
             # # # The player releases the mouse button and places the ship on the grid
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
                 if self._dragged_ship is None:
-                    return
+                    return None
 
                 coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
                 if coords is not None:
@@ -966,15 +974,15 @@ init -10 python in mas_battleship:
             # # # The player releases the mouse button potentially shooting
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
                 if not self.is_player_turn():
-                    return
+                    return None
 
                 coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
                 if coords is None:
-                    return
+                    return None
 
                 if self._player.has_shot_at(coords):
                     # Already shot there
-                    return
+                    return None
 
                 ship = self._monika.grid.get_ship_at(coords[0], coords[1])
                 if ship is None:
@@ -992,15 +1000,28 @@ init -10 python in mas_battleship:
                 self._redraw_now()
                 return True
 
+            return None
+
         def handle_monika_turn(self):
-            if self.is_player_turn():
+            """
+            Logic for playing Monika turn
+            """
+            if not self.is_in_action():
+                # TODO: just log these stuff
+                self.invoke_say("The game hasn't started yet")
                 return
 
-            coords = self._monika.pick_cell_for_attack()
+            if self.is_player_turn():
+                self.invoke_say("This is not my turn")
+                return
+
+            coords = self._monika.pick_cell_for_attack(self)
             if coords is None:
+                self.invoke_say("I don't know where to shoot")
                 return
 
             if self._monika.has_shot_at(coords):
+                self.invoke_say("I picked a square I already shot at")
                 # This should never happen!
                 self._switch_turn()
                 return
@@ -1128,7 +1149,7 @@ init -10 python in mas_battleship:
                 # If we clear the map, we must clear the main list too
                 self._ships[:] = []
 
-        def _is_within(self, x, y):
+        def is_within(self, x, y):
             """
             Returns whether or not the coordinates are within the grid
 
@@ -1155,21 +1176,47 @@ init -10 python in mas_battleship:
             """
             return self._cell_states.get((x, y), None)
 
-        def _is_empty_at(self, x, y):
+        def is_empty_at(self, x, y):
             """
             Checks if the cell at the given coordinates is empty
-            (has no ship nor is spacing for a ship)
+            (has no ship nor spacing for a ship)
 
             IN:
                 x - x coord
                 y - y coord
 
             OUT:
-                boolean: True if free, False otherwise
+                bool - True if free, False otherwise
             """
             return self._get_cell_at(x, y) == self.CellState.EMPTY
 
-        def _is_empty_or_spacing_at(self, x, y):
+        def is_spacing_at(self, x, y):
+            """
+            Checks if the cell at the given coordinates is occupied by ship spacing
+
+            IN:
+                x - x coord
+                y - y coord
+
+            OUT:
+                bool - True if free, False otherwise
+            """
+            return self._get_cell_at(x, y) == self.CellState.SPACING
+
+        def is_ship_at(self, x, y):
+            """
+            Checks if the cell at the given coordinates is occupied by a ship
+
+            IN:
+                x - x coord
+                y - y coord
+
+            OUT:
+                bool - True if free, False otherwise
+            """
+            return self._get_cell_at(x, y) == self.CellState.SHIP
+
+        def is_empty_or_spacing_at(self, x, y):
             """
             Checks if the cell at the given coordinates has no ship
 
@@ -1178,10 +1225,9 @@ init -10 python in mas_battleship:
                 y - y coord
 
             OUT:
-                boolean: True if free, False otherwise
+                bool - True if free, False otherwise
             """
-            state = self._get_cell_at(x, y)
-            return state == self.CellState.EMPTY or state == self.CellState.SPACING
+            return self.is_empty_at(x, y) or self.is_spacing_at(x, y)
 
         def _set_cell_at(self, x, y, value):
             """
@@ -1282,7 +1328,7 @@ init -10 python in mas_battleship:
                 ship - ship
 
             OUT:
-                boolean: True if the place if valid, False otherwise
+                bool - True if the place if valid, False otherwise
             """
             ship_length = ship.length
             ship_orientation = ship.orientation
@@ -1304,7 +1350,7 @@ init -10 python in mas_battleship:
                 y_coords = itertools.repeat(y, ship_length)
 
             for _x, _y in zip(x_coords, y_coords):
-                if not self._is_empty_at(_x, _y):
+                if not self.is_empty_at(_x, _y):
                     return False
 
             return True
@@ -1357,7 +1403,7 @@ init -10 python in mas_battleship:
                         y = row
 
                     # If this square is free, add it to the line
-                    if self._is_empty_at(x, y):
+                    if self.is_empty_at(x, y):
                         line.append((x, y))
 
                     # Otherwise we got all free squares we could
@@ -1401,12 +1447,12 @@ init -10 python in mas_battleship:
             for cell in ship_cells:
                 # We have to iterate twice, if at least one cell is out of bounds,
                 # we want to mark all of them as conflict, so the player knows something is wrong
-                if not self._is_within(cell[0], cell[1]):
+                if not self.is_within(cell[0], cell[1]):
                     is_ship_within_grid = False
                     break
 
             for cell in ship_cells:
-                if is_ship_within_grid and self._is_empty_at(cell[0], cell[1]):
+                if is_ship_within_grid and self.is_empty_at(cell[0], cell[1]):
                     cell_state = self.CellState.SHIP
                 else:
                     cell_state = self.CellState.CONFLICT
@@ -1419,7 +1465,11 @@ init -10 python in mas_battleship:
                         self._ships_grid[cell].append(ship)
 
             for cell in spacing_cells:
-                if self._is_empty_or_spacing_at(cell[0], cell[1]):
+                # If empty, set spacing
+                # if spacing, keep it
+                # if there's a ship, set conflict
+                # if conflict, keep it
+                if self.is_empty_or_spacing_at(cell[0], cell[1]):
                     cell_state = self.CellState.SPACING
 
                 else:
@@ -1665,7 +1715,7 @@ init -10 python in mas_battleship:
             Returns cells occupied by this ship
 
             OUT:
-                tuple of 2 lists: first list is the ship cells, second list os the spacing cells
+                tuple[list[int], list[int]]: first list is the ship cells, second list is the spacing cells
             """
             base_x = self.bow_coords[0]
             base_y = self.bow_coords[1]
@@ -1798,10 +1848,16 @@ init -10 python in mas_battleship:
         def __repr__(self):
             return "<{0}: (ships: {1}, hits: {2}, misses: {3})>".format(
                 type(self).__name__,
-                list(self.grid.iter_ships()),
+                list(self.iter_ships()),
                 sorted(self._hits),
                 sorted(self._misses),
             )
+
+        def iter_ships(self):
+            """
+            Returns an iterator of ships
+            """
+            return self.grid.iter_ships()
 
         def get_total_alive_ships(self):
             """
@@ -1811,7 +1867,7 @@ init -10 python in mas_battleship:
                 int
             """
             counter = 0
-            for ship in self.grid.iter_ships():
+            for ship in self.iter_ships():
                 if ship.is_alive():
                     counter += 1
 
@@ -1824,7 +1880,7 @@ init -10 python in mas_battleship:
             OUT:
                 bool
             """
-            for ship in self.grid.iter_ships():
+            for ship in self.iter_ships():
                 if ship.is_alive():
                     return False
 
@@ -1919,7 +1975,7 @@ init -10 python in mas_battleship:
             Picks an expr and a line from this quip
 
             OUT:
-                tuple of exprs (str) and dlg (str)
+                tuple[str, str] - exprs and dlg line
             """
             if len(self.exprs) == 1:
                 expr = self.exprs[0]
@@ -1953,7 +2009,7 @@ init -10 python in mas_battleship:
             Picks a quip from this set
 
             OUT:
-                tuple of exprs (str) and dlg (str)
+                tuple[str, str] - exprs and dlg line
             """
             if len(self.quips) == 1:
                 quip = self.quips[0]
@@ -2042,7 +2098,7 @@ init -10 python in mas_battleship:
                     "Ehehe~",
                     "There we go~",
                     "What was that?~",
-                    "Ooops~",
+                    "Oops~",
                 ),
             ),
         )
@@ -2054,14 +2110,14 @@ init -10 python in mas_battleship:
             super(AIPlayer, self).__init__(ship_set)
             self.strategy = strategy
 
-        def pick_cell_for_attack(self):
+        def pick_cell_for_attack(self, game):
             """
             AI plays turn
 
             OUT:
                 tuple of coordinates
             """
-            return self.strategy.pick_cell_for_attack()
+            return self.strategy.pick_cell(game)
 
         def pick_turn_start_quip(self, game):
             """
@@ -2087,7 +2143,7 @@ init -10 python in mas_battleship:
                 return self.TURN_START_GREAT.pick()
 
             if ship_diff <= -2 and monika_ships_count >= 3:
-                return self.TURN_START_WORRY.pick()
+                return self.TURN_START_TEASE.pick()
 
             return self.TURN_START_NORM.pick()
 
@@ -2099,18 +2155,312 @@ init -10 python in mas_battleship:
         """
         AI will pick random cells to shoot at
         """
-        def __init__(self, game, available_cells=None):
-            self.game = game
-            if available_cells is None:
-                self.available_cells = set(
-                    (col, row)
-                    for row in range(Grid.HEIGHT)
-                    for col in range(Grid.WIDTH)
-                )
-            else:
-                self.available_cells = available_cells
+        def __init__(self):
+            self.targets = {
+                (col, row)
+                for row in range(Grid.HEIGHT)
+                for col in range(Grid.WIDTH)
+            }
 
-        def pick_cell_for_attack(self):
-            cell = random.choice(tuple(self.available_cells))
-            self.available_cells.remove(cell)
+        def mark_cell_used(self, cell):
+            self.targets.discard(cell)
+
+        def pick_cell(self, game):
+            if not self.targets:
+                # Shouldn't happen, we definitely won if all cells were shot
+                return None
+
+            cell = random.choice(tuple(self.targets))
+            self.mark_cell_used(cell)
             return cell
+
+    class CheckerboardStrategy(object):
+        """
+        AI will pick every other cells to shoot at forming a checkerboard pattern
+        """
+        def __init__(self):
+            self.white_targets = set()
+            self.black_targets = set()
+
+            is_white = True
+            for row in range(Grid.HEIGHT):
+                for col in range(Grid.WIDTH):
+                    if is_white:
+                        self.white_targets.add((col, row))
+                    else:
+                        self.black_targets.add((col, row))
+                    is_white = not is_white
+                is_white = not is_white
+
+            # Swap sets to make the game look more random
+            if random.random() < 0.5:
+                self.white_targets, self.black_targets = self.black_targets, self.white_targets
+
+        @property
+        def targets(self):
+            if self.white_targets:
+                return self.white_targets
+            return self.black_targets
+
+        def mark_cell_used(self, cell):
+            self.white_targets.discard(cell)
+            self.black_targets.discard(cell)
+
+        def pick_cell(self, game):
+            targets = self.targets
+
+            if not targets:
+                # Shouldn't happen, if we hit all the cells, we win
+                return None
+
+            cell = random.choice(tuple(targets))
+            self.mark_cell_used(cell)
+            return cell
+
+    class HunterStrategy(object):
+        """
+        Adaptive strategy focusing on effectivly finding ships and targeting them down
+        """
+        def __init__(self):
+            self.helper_strat = CheckerboardStrategy()
+            # The cell where we first found current target
+            self.found_ship_at = None
+            # Coordinates for next potential ship cells from the found_ship_at
+            self.search_coords_up = None
+            self.search_coords_right = None
+            self.search_coords_down = None
+            self.search_coords_left = None
+            # Gets set to one of the above when we're shooting using its coords
+            # This way we can continue shooting in one direction until we either kill, or miss
+            self.current_search_coords = None
+            # We don't want to shoot here
+            self.cells_blacklist = set()
+
+        def _get_min_max_ship_len(self, enemy):
+            """
+            Returns minimum and maximum lengths of the player ships that are still alive
+
+            OUT:
+                tuple[int, int]
+            """
+            min_ = Grid.HEIGHT * Grid.WIDTH # Just any value bigger than possible ship length
+            max_ = -1
+            for ship in enemy.iter_ships():
+                if ship.is_alive():
+                    min_ = min(ship.length, min_)
+                    max_ = max(ship.length, max_)
+
+            return (min_, max_)
+
+        def _is_valid_target_cell(self, x, y, enemy_grid):
+            """
+            Checks if the given cell is valid for targeting
+
+            IN:
+                x - int - x coord
+                y - int - y coord
+                enemy_grid - Grid - enemy ships grid
+
+            OUT:
+                bool
+            """
+            return enemy_grid.is_within(x, y) and (x, y) not in self.cells_blacklist
+
+        def _reset_target(self):
+            self.found_ship_at = None
+            self.search_coords_up = None
+            self.search_coords_right = None
+            self.search_coords_down = None
+            self.search_coords_left = None
+            self.current_search_coords = None
+
+        def _prune_search_coords(self, min_ship_len):
+            """
+            Ensures that a ship can fit in one of the directions
+
+            IN:
+                min_ship_len - int - min length of enemy ships
+            """
+            # Check we can fit at least the smallest ship horizontally or vertically
+            # Using elif because at least one of orientations has to be valid
+            if len(self.search_coords_up) + len(self.search_coords_down) + 1 < min_ship_len:
+                self.search_coords_up[:] = []
+                self.search_coords_down[:] = []
+
+            elif len(self.search_coords_right) + len(self.search_coords_left) + 1 < min_ship_len:
+                self.search_coords_right[:] = []
+                self.search_coords_left[:] = []
+
+        def _set_potential_search_coords(self, target_at, min_ship_len, max_ship_len, enemy_grid):
+            """
+            Analyses and chooses appropriate cells where the ship might be, the cells are split between 4 lists,
+            each list contains cells for a direction from the point where the ship was found
+
+            IN:
+                target_at - tuple[int, int] - coordinates where we first found a ship
+                min_ship_len - int - min length of enemy ships
+                max_ship_len - int - max length of enemy ships
+                enemy_grid - Grid - enemy ships grid
+            """
+            base_x, base_y = target_at
+
+            # Get the cells to shoot next
+            # TODO: in r8 instead return a namedtuple, I don't like to mutate state from within the methods
+            self.search_coords_up = []
+            self.search_coords_right = []
+            self.search_coords_down = []
+            self.search_coords_left = []
+            for y in range(base_y - 1, base_y - max_ship_len, -1):
+                if not self._is_valid_target_cell(base_x, y, enemy_grid):
+                    # No reason to go further, we know the ship ends before this cell
+                    break
+                self.search_coords_up.append((base_x, y))
+            for x in range(base_x + 1, base_x + max_ship_len):
+                if not self._is_valid_target_cell(x, base_y, enemy_grid):
+                    break
+                self.search_coords_right.append((x, base_y))
+            for y in range(base_y + 1, base_y + max_ship_len):
+                if not self._is_valid_target_cell(base_x, y, enemy_grid):
+                    break
+                self.search_coords_down.append((base_x, y))
+            for x in range(base_x - 1, base_x - max_ship_len, -1):
+                if not self._is_valid_target_cell(x, base_y, enemy_grid):
+                    break
+                self.search_coords_left.append((x, base_y))
+
+            self._prune_search_coords(min_ship_len)
+
+        def _pick_search_coords(self):
+            """
+            Picks 1-4 directions for next shots in attempt to finish off the found ship
+
+            ASSUMES:
+                At least one of up/right/down/left was set
+
+            OUT:
+                list[tuple[int, int]]
+            """
+            directions = []
+            if self.search_coords_up:
+                directions.append(self.search_coords_up)
+            if self.search_coords_right:
+                directions.append(self.search_coords_right)
+            if self.search_coords_down:
+                directions.append(self.search_coords_down)
+            if self.search_coords_left:
+                directions.append(self.search_coords_left)
+
+            if directions:
+                return random.choice(directions)
+            # Should never happen, but just in case to avoid an exception
+            return []
+
+        def _is_good_target_at(self, coords, min_ship_len, max_ship_len, enemy_grid):
+            """
+            Analyses whether a ship might be at the given coords
+            NOTE: this is an optimised version of _set_potential_search_coords plus _prune_search_coords functions
+                with focusing on analysing one cell instead of generating list of coordinates to target next
+
+            IN:
+                coords - tuple[int, int] - coordinates to shoot at
+                min_ship_len - int - min length of enemy ships
+                max_ship_len - int - max length of enemy ships
+                enemy_grid - Grid - enemy ships grid
+
+            OUT:
+                bool
+            """
+            base_x, base_y = coords
+
+            total_cells_up = 0
+            total_cells_right = 0
+            total_cells_down = 0
+            total_cells_left = 0
+            for y in range(base_y - 1, base_y - max_ship_len, -1):
+                if not self._is_valid_target_cell(base_x, y, enemy_grid):
+                    # No reason to go further, we know the ship ends before this cell
+                    break
+                total_cells_up += 1
+            for x in range(base_x + 1, base_x + max_ship_len):
+                if not self._is_valid_target_cell(x, base_y, enemy_grid):
+                    break
+                total_cells_right += 1
+            for y in range(base_y + 1, base_y + max_ship_len):
+                if not self._is_valid_target_cell(base_x, y, enemy_grid):
+                    break
+                total_cells_down += 1
+            for x in range(base_x - 1, base_x - max_ship_len, -1):
+                if not self._is_valid_target_cell(x, base_y, enemy_grid):
+                    break
+                total_cells_left += 1
+
+            return (total_cells_up + total_cells_down + 1 >= min_ship_len) or (total_cells_right + total_cells_left + 1 >= min_ship_len)
+
+        def mark_cell_used(self, cell):
+            self.cells_blacklist.add(cell)
+            self.helper_strat.mark_cell_used(cell)
+
+        def pick_cell(self, game):
+            min_ship_len, max_ship_len = self._get_min_max_ship_len(game._player)
+
+            if self.found_ship_at is not None:
+                ship = game._player.grid.get_ship_at(self.found_ship_at[0], self.found_ship_at[1])
+                # Shouldn't be none, but just in case
+                if ship is not None:
+                    if ship.is_alive():
+                        if not self.current_search_coords:
+                            # We either didn't set up the potential directions yet, or we need to pick a new one
+                            if not self.search_coords_up and not self.search_coords_right and not self.search_coords_down and not self.search_coords_left:
+                                self._set_potential_search_coords(
+                                    self.found_ship_at,
+                                    min_ship_len,
+                                    max_ship_len,
+                                    game._player.grid,
+                                )
+                            self.current_search_coords = self._pick_search_coords()
+
+                        # We have a direction we want to SEARCH and DESTROY
+                        cell = self.current_search_coords.pop(0)
+                        if game._player.grid.is_ship_at(cell[0], cell[1]):
+                            # We hit, which means we know ship's orientation now
+                            if self.current_search_coords is self.search_coords_up or self.current_search_coords is self.search_coords_down:
+                                self.search_coords_left[:] = []
+                                self.search_coords_right[:] = []
+                            else:
+                                self.search_coords_up[:] = []
+                                self.search_coords_down[:] = []
+
+                        else:
+                            # Check that there's the ship, otherwise we can stop searching there
+                            # NOTE: Important, this also changes the original list in up/right/down/left
+                            # Kind of hacky working with references, eh?
+                            self.current_search_coords[:] = []
+                            self._prune_search_coords(game._player)
+                            self.current_search_coords = self._pick_search_coords()
+
+                        self.mark_cell_used(cell)
+                        return cell
+
+                    # If we destroyed this ship in previous turn, we need to find a new target and mark the cells
+                    else:
+                        for cell_list in ship.get_cells():
+                            for cell in cell_list:
+                                self.mark_cell_used(cell)
+
+                self._reset_target()
+
+            # No target or it was destroyed, let's find the next target
+            while True:
+                cell = self.helper_strat.pick_cell(game)
+                if cell is None:
+                    # Shouldn't happen, but just in case to prevent inf loop
+                    return None
+
+                self.mark_cell_used(cell)
+
+                if self._is_good_target_at(cell, min_ship_len, max_ship_len, game._player.grid):
+                    # If we found a ship, set it as a target for next turns
+                    if game._player.grid.is_ship_at(cell[0], cell[1]):
+                        self.found_ship_at = cell
+
+                    return cell
