@@ -461,6 +461,30 @@ init -10 python in mas_battleship:
             """
             renpy.restart_interaction()
 
+        @staticmethod
+        def cell_coords_to_human_readable(coords):
+            """
+            Returns a human-readable name of the cell
+
+            IN:
+                coords - tuple[int, int] - the cell coordinates
+
+            ASSUMES:
+                the coordinates are correct
+
+            OUT:
+                str - like "A1" or "J10"
+            """
+            UNICOED_CODE_POINT_OFFSET = 65
+            Y_AXIS_OFFSET = 1
+
+            x, y = coords
+
+            return "{}{}".format(
+                chr(x + UNICOED_CODE_POINT_OFFSET),
+                y + Y_AXIS_OFFSET,
+            )
+
         def get_hovering_square(self):
             """
             Returns a human-readable name of the cell
@@ -472,14 +496,7 @@ init -10 python in mas_battleship:
             if not self._hovered_cell:
                 return "n/a"
 
-            UNICOED_CODE_POINT_OFFSET = 65
-            AXIS_OFFSET = 1
-            x, y = self._hovered_cell
-
-            return "{}{}".format(
-                chr(x + UNICOED_CODE_POINT_OFFSET),
-                y + AXIS_OFFSET,
-            )
+            return self.cell_coords_to_human_readable(self._hovered_cell)
 
 
         @staticmethod
@@ -507,15 +524,16 @@ init -10 python in mas_battleship:
 
             return attrs[0]
 
-        def invoke_say(self, what, expr=None, restore_expr=True):
+        def monika_say(self, what, expr=None, restore_expr=True, should_invoke=False):
             """
-            Invokes renpy say from a new context allowing Monika speak mid game
+            Calls renpy say allowing Monika speak during the game
 
             IN:
-                what - str, what Monika will say
-                expr - str | None, the expression to show if any
-                restore_expr - bool, if an expr was given and this parameter is True,
+                what - str - what Monika will say
+                expr - str | None - the expression to show if any
+                restore_expr - bool - if an expr was given and this parameter is True,
                     then after the dialogue the expression will return to the previous one
+                should_invoke - bool - if True, the call will be made in new context allowing execution mid interaction
             """
             previous_is_sensitive = self._is_sensitive
             self._is_sensitive = False
@@ -525,10 +543,10 @@ init -10 python in mas_battleship:
                 prev_expr = self._get_monika_expr()
                 renpy.show("monika {}".format(expr))
 
-            # TODO: We may not need new context for say because we don't say anything mid interaction
-            # or just keep it for future?
-            renpy.invoke_in_new_context(renpy.say, store.m, what, interact=True)
-            # renpy.say(store.m, "[player]"+what, interact=True)
+            if should_invoke:
+                renpy.invoke_in_new_context(renpy.say, store.m, what, interact=True)
+            else:
+                renpy.say(store.m, what, interact=True)
 
             if expr and prev_expr and restore_expr:
                 renpy.show("monika {}".format(prev_expr))
@@ -917,29 +935,29 @@ init -10 python in mas_battleship:
             """
             if not self.is_in_action():
                 # TODO: just log these stuff
-                self.invoke_say("The game hasn't started yet")
+                self.monika_say("The game hasn't started yet")
                 return
 
             if self.is_player_turn():
-                self.invoke_say("This is not my turn")
+                self.monika_say("This is not my turn")
                 return
 
             coords = self._monika.pick_cell_for_attack(self)
             if coords is None:
-                self.invoke_say("I don't know where to shoot")
+                self.monika_say("I don't know where to shoot")
                 return
 
             if self._monika.has_shot_at(coords):
-                self.invoke_say("I picked a square I already shot at")
+                self.monika_say("I picked a square I already shot at")
                 # This should never happen!
                 self._switch_turn()
                 return
 
-            quip = self._monika.pick_turn_start_quip(self)
+            quip = self._monika.pick_turn_start_quip(self, coords)
             if quip is not None:
-                self.invoke_say(quip[1], quip[0])
+                self.monika_say(quip[1], quip[0])
             else:
-                renpy.pause(0.5)
+                renpy.pause(0.05)
 
             ship = self._player.grid.get_ship_at(coords)
             if ship is None:
@@ -1582,8 +1600,7 @@ init -10 python in mas_battleship:
             OUT:
                 tuple[list[int], list[int]]: first list is the ship cells, second list is the spacing cells
             """
-            base_x = self.bow_coords[0]
-            base_y = self.bow_coords[1]
+            base_x, base_y = self.bow_coords
             length = self.length
 
             ship = []
@@ -1835,7 +1852,7 @@ init -10 python in mas_battleship:
             Picks an expr and a line from this quip
 
             OUT:
-                tuple[str, str] - exprs and dlg line
+                tuple[str, str] - expr and dlg line
             """
             if len(self.exprs) == 1:
                 expr = self.exprs[0]
@@ -1846,8 +1863,6 @@ init -10 python in mas_battleship:
                 line = self.lines[0]
             else:
                 line = random.choice(self.lines)
-
-            line += "{w=1.0}{nw}"
 
             return (expr, line)
 
@@ -1869,7 +1884,7 @@ init -10 python in mas_battleship:
             Picks a quip from this set
 
             OUT:
-                tuple[str, str] - exprs and dlg line
+                tuple[str, str] - expr and dlg line
             """
             if len(self.quips) == 1:
                 quip = self.quips[0]
@@ -1905,37 +1920,50 @@ init -10 python in mas_battleship:
             _Quip(
                 exprs=("1lua", "2lua", "1luu", "2luu"),
                 lines=(
-                    "Let's see.{w=0.1}.{w=0.1}.{w=0.1}",
-                    "Hmmm.{w=0.1}.{w=0.1}.{w=0.1}",
+                    _("Let's see.{w=0.1}.{w=0.1}.{w=0.1}"),
+                    _("Hmmm.{w=0.1}.{w=0.1}.{w=0.1}"),
                 ),
             ),
         )
         # Monika has 1-2 ships, player has more than 1
-        TURN_START_WORRY = _QuipSet(
+        TURN_START_LOOKS_BAD = _QuipSet(
             _Quip(
                 exprs=("2ltsdra", "2ltsdla"),
                 lines=(
                     _LINES_TURN_START_COMMON_0
                     + (
-                        "[player], I'm your girlfriend after all...{w=0.3}you could go a little bit easier on me~",
-                        "Hmmm.{w=0.1}.{w=0.1}.{w=0.1}",
+                        _("[player], I'm your girlfriend after all...{w=0.3}you could go a little bit easier on me~"),
+                        _("Hmmm.{w=0.1}.{w=0.1}.{w=0.1}"),
+                        _("What do I do here..."),
                     )
                 ),
             ),
             _Quip(
                 exprs=("2etsdra", "2eksdlu", "2ltsdra", "2ltsdla"),
-                lines="[player], I'm your girlfriend after all...{w=0.3}you could go a little bit easier on me~",
+                lines=_("[player], I'm your girlfriend after all...{w=0.3}you could go a little bit easier on me~"),
             ),
         )
         # Monika has some ships, player has just one
-        TURN_START_GREAT = _QuipSet(
+        TURN_START_FINISH_HIM = _QuipSet(
             _Quip(
                 exprs=("1mta", "2mta", "1mtu", "2mtu"),
                 lines=(
-                    _("Where is your last ships I wonder.{w=0.1}.{w=0.1}.{w=0.1}"),
+                    _("Where is your last ship I wonder.{w=0.1}.{w=0.1}.{w=0.1}"),
                     _("Where could your last ship be.{w=0.1}.{w=0.1}.{w=0.1}"),
                     _("Where's your last ship.{w=0.1}.{w=0.1}.{w=0.1}"),
                     _("I wonder where is your last ship is.{w=0.1}.{w=0.1}.{w=0.1}"),
+                ),
+            ),
+        )
+
+        # Monika announces where she shoots next
+        TURN_START_SHOT_ANNOUNCE = _QuipSet(
+            _Quip(
+                exprs=("1lta", "1lua"),
+                lines=(
+                    _("Maybe {cell}..."),
+                    _("Hmmm.{{w=0.1}}.{{w=0.1}}.{{w=0.1}} Let's try {cell}."),
+                    _("What are you hiding at.{{w=0.1}}.{{w=0.1}}.{{w=0.1}}{cell}?"),
                 ),
             ),
         )
@@ -1944,9 +1972,9 @@ init -10 python in mas_battleship:
             _Quip(
                 exprs=("2etp", "2rtp"),
                 lines=(
-                    "Aww...",
-                    "That's unfortunate...",
-                    "Unlucky...",
+                    _("Aww..."),
+                    _("That's unfortunate..."),
+                    _("Unlucky..."),
                 ),
             ),
         )
@@ -1955,10 +1983,10 @@ init -10 python in mas_battleship:
             _Quip(
                 exprs=("1efu", "21efu", "1tfu", "2tfu", "1huu", "2huu"),
                 lines=(
-                    "Ehehe~",
-                    "There we go~",
-                    "What was that?~",
-                    "Oops~",
+                    _("Ehehe~"),
+                    _("There we go~"),
+                    _("What was that?~"),
+                    _("Oops~"),
                 ),
             ),
         )
@@ -1969,43 +1997,78 @@ init -10 python in mas_battleship:
             """
             super(AIPlayer, self).__init__(ship_set)
             self.strategy = strategy
+            self._turns_without_quip = 0
 
         def pick_cell_for_attack(self, game):
             """
             AI plays turn
 
             OUT:
-                tuple of coordinates
+                tuple[int, int] - coordinates of the square to shoot
             """
             return self.strategy.pick_cell(game)
 
-        def pick_turn_start_quip(self, game):
+        def _pick_quip(self, quip, should_escape=False):
+            """
+            Picks a quip to show
+
+            IN:
+                quip - _Quip | _QuipSet - the quip to use
+                should_escape - bool - whether or not to escape added tags (in case of formatting)
+
+            OUT:
+                tuple[str, str] - the expr and dlg to show
+            """
+            expr, dlg = quip.pick()
+
+            if should_escape:
+                suffix = "{{w=1.0}}{{nw}}"
+            else:
+                suffix = "{w=1.0}{nw}"
+
+            return (expr, dlg + suffix)
+
+        def pick_turn_start_quip(self, game, next_attack_coords):
             """
             Returns a quip for Monika's turn start
 
             IN:
-                game - the game object
+                game - Battleship - the game object
+                next_attack_coords - tuple[int, int] - coords for the next Monika's shot
 
             OUT:
-                a tuple of the expression and line or None
+                tuple[str, str] | None - the expression and the line or None
             """
-            if random.random() > 0.05:
+            if (
+                # 10% if didn't say anything last 7 turns
+                (self._turns_without_quip >= 7 and random.random() > 0.1)
+                # 5% otherwise
+                or random.random() > 0.05
+            ):
+                self._turns_without_quip += 1
                 return None
+
+            self._turns_without_quip = 0
 
             player_ships_count = game._player.get_total_alive_ships()
             monika_ships_count = game._monika.get_total_alive_ships()
             ship_diff = player_ships_count - monika_ships_count
 
-            if ship_diff >= 2 and monika_ships_count <= 2:
-                return self.TURN_START_WORRY.pick()
+            if ship_diff >= 2 and monika_ships_count <= 2 and random.random() > 0.15:
+                return self._pick_quip(self.TURN_START_LOOKS_BAD)
 
-            if player_ships_count == 1 and (monika_ships_count > 1 or random.random() > 0.5):
-                return self.TURN_START_GREAT.pick()
+            if player_ships_count == 1 and (monika_ships_count > 1 or random.random() > 0.25):
+                return self._pick_quip(self.TURN_START_FINISH_HIM)
+
+            if random.random() < 0.1:
+                expr, what = self._pick_quip(self.TURN_START_SHOT_ANNOUNCE, should_escape=True)
+                what = what.format(cell=game.cell_coords_to_human_readable(next_attack_coords))
+                return (expr, what)
 
             if ship_diff <= -1 and monika_ships_count >= 2:
-                return self.TURN_START_TEASE.pick()
+                return self._pick_quip(self.TURN_START_TEASE)
 
-            return self.TURN_START_NORM.pick()
+            return self._pick_quip(self.TURN_START_NORM)
 
 
     ### abc.ABC sucks in py2, so just imagine it's here
