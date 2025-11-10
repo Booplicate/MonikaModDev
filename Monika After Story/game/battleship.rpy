@@ -154,6 +154,7 @@ label mas_battleship_game_end:
         m 1eua "Aww, I really wanted to finish this one."
 
     else:
+        $ mas_battleship.log_err("invalid game phase when reached mas_battleship_game_end label")
         m 1eua "[player], you shouldn't be able to see this! Is it a bug?"
 
     hide screen mas_battleship_ui
@@ -214,9 +215,19 @@ init -10 python in mas_battleship:
         Image,
         Transform,
     )
+    from store.mas_utils import mas_log
 
     # The game object, will be set on game start
     game = None
+
+    def log_err(msg):
+        """
+        Logs an error during the Battleship game
+
+        IN:
+            msg - str - err msg
+        """
+        mas_log.error("Battleship: {}".format(msg))
 
     class Battleship(renpy.display.core.Displayable):
         """
@@ -934,22 +945,21 @@ init -10 python in mas_battleship:
             Logic for playing Monika turn
             """
             if not self.is_in_action():
-                # TODO: just log these stuff
-                self.monika_say("The game hasn't started yet")
+                log_err("called Battleship.handle_monika_turn while in {} phase, the game hasn't started yet".format(self._phase))
                 return
 
             if self.is_player_turn():
-                self.monika_say("This is not my turn")
+                log_err("called Battleship.handle_monika_turn, but it's player's turn")
                 return
 
             coords = self._monika.pick_cell_for_attack(self)
             if coords is None:
-                self.monika_say("I don't know where to shoot")
+                log_err("AIPlayer.pick_cell_for_attack returned None")
+                self._switch_turn()
                 return
 
             if self._monika.has_shot_at(coords):
-                self.monika_say("I picked a square I already shot at")
-                # This should never happen!
+                log_err("AIPlayer.pick_cell_for_attack returned a square that Monika already shot in")
                 self._switch_turn()
                 return
 
@@ -2090,7 +2100,9 @@ init -10 python in mas_battleship:
 
         def pick_cell(self, game):
             if not self.targets:
-                # Shouldn't happen, we definitely won if all cells were shot
+                log_err(
+                    "RandomStrategy.pick_cell was called, but has no more target squares available, the game should've ended by now",
+                )
                 return None
 
             cell = random.choice(tuple(self.targets))
@@ -2133,7 +2145,9 @@ init -10 python in mas_battleship:
             targets = self.targets
 
             if not targets:
-                # Shouldn't happen, if we hit all the cells, we win
+                log_err(
+                    "CheckerboardStrategy.pick_cell was called, but has no more target squares available, the game should've ended by now",
+                )
                 return None
 
             cell = random.choice(tuple(targets))
@@ -2274,7 +2288,11 @@ init -10 python in mas_battleship:
 
             if directions:
                 return random.choice(directions)
+
             # Should never happen, but just in case to avoid an exception
+            log_err(
+                "HunterStrategy._pick_search_coords was called with all search_coords_* empty or None, this is a bug",
+            )
             return []
 
         def _is_good_target_at(self, coords, min_ship_len, max_ship_len, enemy_grid):
@@ -2341,9 +2359,13 @@ init -10 python in mas_battleship:
                                 )
                             self.current_search_coords = self._pick_search_coords()
 
+                        # Sanity check
                         if not self.current_search_coords:
-                            # Sanity check
+                            log_err(
+                                "HunterStrategy.current_search_coords is empty after using _set_potential_search_coords and _pick_search_coords, this is a bug",
+                            )
                             return None
+
                         # We have a direction we want to SEARCH and DESTROY
                         cell = self.current_search_coords.pop(0)
                         if game._player.grid.is_ship_at(cell):
@@ -2378,7 +2400,8 @@ init -10 python in mas_battleship:
             while True:
                 cell = self.helper_strat.pick_cell(game)
                 if cell is None:
-                    # Shouldn't happen, but just in case to prevent inf loop
+                    # Shouldn't happen
+                    log_err("HunterStrategy.helper_strat.pick_cell returned None, possible inf loop")
                     return None
 
                 self.mark_cell_used(cell)
