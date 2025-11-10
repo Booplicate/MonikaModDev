@@ -154,7 +154,7 @@ label mas_battleship_game_end:
         m 1eua "Aww, I really wanted to finish this one."
 
     else:
-        m 1eua "[player], you shouldn't be able to see this. Is it a bug?"
+        m 1eua "[player], you shouldn't be able to see this! Is it a bug?"
 
     hide screen mas_battleship_ui
     # $ renpy.stop_predict(mas_battleship.game)
@@ -939,7 +939,7 @@ init -10 python in mas_battleship:
             if quip is not None:
                 self.invoke_say(quip[1], quip[0])
             else:
-                renpy.pause(0.3)
+                renpy.pause(0.5)
 
             ship = self._player.grid.get_ship_at(coords)
             if ship is None:
