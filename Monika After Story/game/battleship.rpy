@@ -112,6 +112,10 @@ label mas_battleship_game_start:
     window hide
     $ HKBHideButtons()
     $ disable_esc()
+    # There's some weird issue when right clicking multiple times during Monika's turn
+    # We just get stuck, probably some issue due to window_hide MAS uses is spawning a new context
+    # Unsure, but let's just disable it
+    $ mas_hotkeys.no_window_hiding = True
 
     $ mas_battleship.game = mas_battleship.Battleship()
     # $ renpy.start_predict(mas_battleship.game)
@@ -158,6 +162,7 @@ label mas_battleship_game_end:
 
     $ mas_battleship.game = None
 
+    $ mas_hotkeys.no_window_hiding = False
     $ enable_esc()
     $ HKBShowButtons()
     window auto
