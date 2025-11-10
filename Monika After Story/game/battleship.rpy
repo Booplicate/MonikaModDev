@@ -1216,43 +1216,6 @@ init -10 python in mas_battleship:
 
             self.update()
 
-        # def is_valid_place_for_ship(self, x, y, ship):
-        #     """
-        #     Checks if a ship can be placed at coordinates
-
-        #     IN:
-        #         x - x coord for the ship bow
-        #         y - y coord for the ship bow
-        #         ship - ship
-
-        #     OUT:
-        #         bool - True if the place if valid, False otherwise
-        #     """
-        #     ship_length = ship.length
-        #     ship_orientation = ship.orientation
-
-        #     if ship_orientation == Ship.Orientation.UP:
-        #         x_coords = itertools.repeat(x, ship_length)
-        #         y_coords = range(y, y + ship_length)
-
-        #     elif ship_orientation == Ship.Orientation.RIGHT:
-        #         x_coords = range(x, x - ship_length, -1)
-        #         y_coords = itertools.repeat(y, ship_length)
-
-        #     elif ship_orientation == Ship.Orientation.DOWN:
-        #         x_coords = itertools.repeat(x, ship_length)
-        #         y_coords = range(y, y - ship_length, -1)
-
-        #     else:
-        #         x_coords = range(x, x + ship_length)
-        #         y_coords = itertools.repeat(y, ship_length)
-
-        #     for coords in zip(x_coords, y_coords):
-        #         if not self.is_empty_at(coords):
-        #             return False
-
-        #     return True
-
         def find_place_for_ship(self, ship):
             """
             Tries to find a place for a ship
