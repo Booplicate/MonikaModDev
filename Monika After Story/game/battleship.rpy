@@ -237,8 +237,10 @@ init -10 python in mas_battleship:
 
         MAIN_GRID_ORIGIN_X = 0
         MAIN_GRID_ORIGIN_Y = 0
+        MAIN_GRID_ORIGIN = (MAIN_GRID_ORIGIN_X, MAIN_GRID_ORIGIN_Y)
         TRACKING_GRID_ORIGIN_X = GRID_WIDTH + GRID_SPACING
         TRACKING_GRID_ORIGIN_Y = MAIN_GRID_ORIGIN_Y
+        TRACKING_GRID_ORIGIN = (TRACKING_GRID_ORIGIN_X, TRACKING_GRID_ORIGIN_Y)
 
         ### Grid sprites
         GRID_BACKGROUND = Image("/mod_assets/games/battleship/grid/background.png")
@@ -558,39 +560,39 @@ init -10 python in mas_battleship:
             self._monika.grid.place_ships(Ship.build_ships(self._monika.ship_set))
 
         @classmethod
-        def _grid_coords_to_screen_coords(cls, x, y, grid_origin_x, grid_origin_y):
+        def _grid_coords_to_screen_coords(cls, coords, grid_origin):
             """
             Converts grid coordinates into screen coordinates
 
             IN:
-                x - row of the grid
-                y - column of the grid
-                grid_origin_x - screen x coord of the grid origin
-                grid_origin_y - screen y coord of the grid origin
+                coords - tuple[int, int] - coordinates on the grid
+                grid_origin - tuple[int, int] - screen x y coordinates of the grid origin
 
             OUT:
                 tuple with coords
             """
+            x, y = coords
+            grid_origin_x, grid_origin_y = grid_origin
             return (
                 grid_origin_x + cls.OUTER_FRAME_THICKNESS + x * (cls.INNER_GRID_THICKNESS + cls.CELL_WIDTH),
                 grid_origin_y + cls.OUTER_FRAME_THICKNESS + y * (cls.INNER_GRID_THICKNESS + cls.CELL_HEIGHT),
             )
 
         @classmethod
-        def _screen_coords_to_grid_coords(cls, x, y, grid_origin_x, grid_origin_y):
+        def _screen_coords_to_grid_coords(cls, x, y, grid_origin):
             """
             Converts screen coordinates into grid coordinates
 
             IN:
-                x - x coord
-                y - y coord
-                grid_origin_x - screen x coord of the grid origin
-                grid_origin_y - screen y coord of the grid origin
+                x - x coordinate on the screen
+                y - y coordinate on the screen
+                grid_origin - tuple[int, int] - screen x y coordinates of the grid origin
 
             OUT:
                 tuple with coords,
                 or None if the given coords are outside the grid
             """
+            grid_origin_x, grid_origin_y = grid_origin
             # First check if we're within this grid
             if not (
                 grid_origin_x + cls.OUTER_FRAME_THICKNESS <= x <= grid_origin_x + cls.GRID_WIDTH - cls.OUTER_FRAME_THICKNESS
@@ -651,7 +653,7 @@ init -10 python in mas_battleship:
             grid_render = renpy.render(self.GRID, width, height, st, at)
             water_layer_render = renpy.render(self.WATER_LAYER, width, height, st, at)
             # Now blit 'em
-            main_render.subpixel_blit(grid_background_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
+            main_render.subpixel_blit(grid_background_render, self.MAIN_GRID_ORIGIN)
             main_render.subpixel_blit(
                 water_layer_render,
                 (
@@ -659,12 +661,12 @@ init -10 python in mas_battleship:
                     self.MAIN_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS  - self.HACK_WATER_LAYER_OFFSET,
                 ),
             )
-            main_render.subpixel_blit(grid_frame_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
-            main_render.subpixel_blit(grid_render, (self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y))
+            main_render.subpixel_blit(grid_frame_render, self.MAIN_GRID_ORIGIN)
+            main_render.subpixel_blit(grid_render, self.MAIN_GRID_ORIGIN)
 
             # Render Monika's grid only during the game phase
             if self.is_in_action() or self.is_done():
-                main_render.subpixel_blit(grid_background_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
+                main_render.subpixel_blit(grid_background_render, self.TRACKING_GRID_ORIGIN)
                 main_render.subpixel_blit(
                     water_layer_render,
                     (
@@ -672,21 +674,21 @@ init -10 python in mas_battleship:
                         self.TRACKING_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS - self.HACK_WATER_LAYER_OFFSET,
                     ),
                 )
-                main_render.subpixel_blit(grid_frame_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
-                main_render.subpixel_blit(grid_render, (self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y))
+                main_render.subpixel_blit(grid_frame_render, self.TRACKING_GRID_ORIGIN)
+                main_render.subpixel_blit(grid_render, self.TRACKING_GRID_ORIGIN)
 
             # Render conflicts
             if self.is_in_preparation():
                 if self._grid_conflicts:
                     error_mask_render = renpy.render(self.CELL_CONFLICT, width, height, st, at)
                     for coords in self._grid_conflicts:
-                        x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                        x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
                         main_render.subpixel_blit(error_mask_render, (x, y))
 
             # Render player's ships
             for ship in self._player.iter_ships():
                 ship_sprite = self._get_ship_sprite(ship)
-                x, y = self._grid_coords_to_screen_coords(ship.bow_coords[0], ship.bow_coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.MAIN_GRID_ORIGIN)
                 main_render.place(ship_sprite, x, y)
 
             # # # Render things that only relevant during the game
@@ -695,34 +697,34 @@ init -10 python in mas_battleship:
                 for ship in self._monika.iter_ships():
                     if not ship.is_alive():
                         ship_sprite = self._get_ship_sprite(ship)
-                        x, y = self._grid_coords_to_screen_coords(ship.bow_coords[0], ship.bow_coords[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+                        x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.TRACKING_GRID_ORIGIN)
                         main_render.place(ship_sprite, x, y)
 
                 # Render hits
                 hit_mark_render = renpy.render(self.CELL_HIT, width, height, st, at)
                 for coords in self._player.iter_hits():
-                    x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+                    x, y = self._grid_coords_to_screen_coords(coords, self.TRACKING_GRID_ORIGIN)
                     main_render.subpixel_blit(hit_mark_render, (x, y))
 
                 for coords in self._monika.iter_hits():
-                    x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                    x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
                     main_render.subpixel_blit(hit_mark_render, (x, y))
 
                 # Render misses
                 miss_mark_render = renpy.render(self.CELL_MISS, width, height, st, at)
                 for coords in self._player.iter_misses():
-                    x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+                    x, y = self._grid_coords_to_screen_coords(coords, self.TRACKING_GRID_ORIGIN)
                     main_render.subpixel_blit(miss_mark_render, (x, y))
 
                 for coords in self._monika.iter_misses():
-                    x, y = self._grid_coords_to_screen_coords(coords[0], coords[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                    x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
                     main_render.subpixel_blit(miss_mark_render, (x, y))
 
                 if not self.is_done():
                     # Render hovering mask
                     if self._hovered_cell is not None:
                         hover_mask_render = renpy.render(self.CELL_HOVER, width, height, st, at)
-                        x, y = self._grid_coords_to_screen_coords(self._hovered_cell[0], self._hovered_cell[1], self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+                        x, y = self._grid_coords_to_screen_coords(self._hovered_cell, self.TRACKING_GRID_ORIGIN)
                         main_render.subpixel_blit(hover_mask_render, (x, y))
 
             # # # Render things that only relevant during ship building
@@ -730,7 +732,7 @@ init -10 python in mas_battleship:
                 # Render hovering mask
                 if self._hovered_cell is not None:
                     hover_mask_render = renpy.render(self.CELL_HOVER, width, height, st, at)
-                    x, y = self._grid_coords_to_screen_coords(self._hovered_cell[0], self._hovered_cell[1], self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                    x, y = self._grid_coords_to_screen_coords(self._hovered_cell, self.MAIN_GRID_ORIGIN)
                     main_render.subpixel_blit(hover_mask_render, (x, y))
 
                 # Render the ship that's currently dragged (if any)
@@ -775,11 +777,11 @@ init -10 python in mas_battleship:
 
                 # If the player's pressed the keybinding for rotating while hovering over a ship, rotate it
                 else:
-                    coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                    coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN)
                     if coords is None:
                         return None
 
-                    ship = self._player.grid.get_ship_at(coords[0], coords[1])
+                    ship = self._player.grid.get_ship_at(coords)
                     if ship is None:
                         return None
 
@@ -789,7 +791,7 @@ init -10 python in mas_battleship:
                         angle = 90
 
                     self._player.grid.remove_ship(ship)
-                    ship.rotate(angle, coords[0], coords[1])
+                    ship.rotate(angle, coords)
                     self._player.grid.place_ship(ship)
                     self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
@@ -802,7 +804,7 @@ init -10 python in mas_battleship:
                 if self._dragged_ship is not None:
                     self._redraw_now()
 
-                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN)
                 if coords != self._hovered_cell:
                     self._hovered_cell = coords
                     self._redraw_now()
@@ -814,11 +816,11 @@ init -10 python in mas_battleship:
 
             # # # The player clicks on a ship and starts dragging it
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
-                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN)
                 if coords is None:
                     return None
 
-                ship = self._player.grid.get_ship_at(coords[0], coords[1])
+                ship = self._player.grid.get_ship_at(coords)
                 if ship is None:
                     return None
 
@@ -835,7 +837,7 @@ init -10 python in mas_battleship:
                 if self._dragged_ship is None:
                     return None
 
-                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN_X, self.MAIN_GRID_ORIGIN_Y)
+                coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN)
                 if coords is not None:
                     # Let's get dragging offsets
                     if Ship.Orientation.is_vertical(self._dragged_ship.orientation):
@@ -865,7 +867,7 @@ init -10 python in mas_battleship:
         def _handle_action_events(self, ev, x, y, st):
             # # # The player moves the mouse, we may need to update the screen for hover events
             if ev.type == pygame.MOUSEMOTION:
-                coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+                coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN)
                 if coords != self._hovered_cell:
                     self._hovered_cell = coords
                     self._redraw_now()
@@ -880,7 +882,7 @@ init -10 python in mas_battleship:
                 if not self.is_player_turn():
                     return None
 
-                coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN_X, self.TRACKING_GRID_ORIGIN_Y)
+                coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN)
                 if coords is None:
                     return None
 
@@ -888,7 +890,7 @@ init -10 python in mas_battleship:
                     # Already shot there
                     return None
 
-                ship = self._monika.grid.get_ship_at(coords[0], coords[1])
+                ship = self._monika.grid.get_ship_at(coords)
                 if ship is None:
                     self._player.register_miss(coords)
 
@@ -936,7 +938,7 @@ init -10 python in mas_battleship:
             else:
                 renpy.pause(0.3)
 
-            ship = self._player.grid.get_ship_at(coords[0], coords[1])
+            ship = self._player.grid.get_ship_at(coords)
             if ship is None:
                 self._monika.register_miss(coords)
 
@@ -1053,97 +1055,90 @@ init -10 python in mas_battleship:
                 # If we clear the map, we must clear the main list too
                 self._ships[:] = []
 
-        def is_within(self, x, y):
+        def is_within(self, coords):
             """
             Returns whether or not the coordinates are within the grid
 
             IN:
-                x - x coord
-                y - y coord
+                coords - tuple[int, int] - coordinates
 
             OUT:
                 bool
             """
+            x, y = coords
             return (0 <= x < self.WIDTH) and (0 <= y < self.HEIGHT)
 
-        def _get_cell_at(self, x, y):
+        def _get_cell_at(self, coords):
             """
             Returns the state of a cell
 
             IN:
-                x - x coord
-                y - y coord
+                coords - tuple[int, int] - coordinates
 
             OUT:
                 int as one of states,
                 or None if the given coordinates are out of this grid
             """
-            return self._cell_states.get((x, y), None)
+            return self._cell_states.get(coords, None)
 
-        def is_empty_at(self, x, y):
+        def is_empty_at(self, coords):
             """
             Checks if the cell at the given coordinates is empty
             (has no ship nor spacing for a ship)
 
             IN:
-                x - x coord
-                y - y coord
+                coords - tuple[int, int] - coordinates
 
             OUT:
                 bool - True if free, False otherwise
             """
-            return self._get_cell_at(x, y) == self.CellState.EMPTY
+            return self._get_cell_at(coords) == self.CellState.EMPTY
 
-        def is_spacing_at(self, x, y):
+        def is_spacing_at(self, coords):
             """
             Checks if the cell at the given coordinates is occupied by ship spacing
 
             IN:
-                x - x coord
-                y - y coord
+                coords - tuple[int, int] - coordinates
 
             OUT:
                 bool - True if free, False otherwise
             """
-            return self._get_cell_at(x, y) == self.CellState.SPACING
+            return self._get_cell_at(coords) == self.CellState.SPACING
 
-        def is_ship_at(self, x, y):
+        def is_ship_at(self, coords):
             """
             Checks if the cell at the given coordinates is occupied by a ship
 
             IN:
-                x - x coord
-                y - y coord
+                coords - tuple[int, int] - coordinates
 
             OUT:
                 bool - True if free, False otherwise
             """
-            return self._get_cell_at(x, y) == self.CellState.SHIP
+            return self._get_cell_at(coords) == self.CellState.SHIP
 
-        def is_empty_or_spacing_at(self, x, y):
+        def is_empty_or_spacing_at(self, coords):
             """
             Checks if the cell at the given coordinates has no ship
 
             IN:
-                x - x coord
-                y - y coord
+                coords - tuple[int, int] - coordinates
 
             OUT:
                 bool - True if free, False otherwise
             """
-            return self.is_empty_at(x, y) or self.is_spacing_at(x, y)
+            return self.is_empty_at(coords) or self.is_spacing_at(coords)
 
-        def _set_cell_at(self, x, y, value):
+        def _set_cell_at(self, coords, value):
             """
             Set a cell to a new state
             This will do nothing if the given coords are outside of this grid
 
             IN:
-                x - x coord
-                y - y coord
+                coords - tuple[int, int] - coordinates
                 value - new state for the cell
             """
-            coords = (x, y)
             if (
                 coords not in self._cell_states
                 or value not in self.CellState.get_all()
@@ -1152,7 +1147,7 @@ init -10 python in mas_battleship:
 
             self._cell_states[coords] = value
 
-        def get_ship_at(self, x, y):
+        def get_ship_at(self, coords):
             """
             Returns a ship at the given coordinates
 
@@ -1160,13 +1155,12 @@ init -10 python in mas_battleship:
                 this will return the one that was added last
 
             IN:
-                x - x coord
-                y - y coord
+                coords - tuple[int, int] - coordinates
 
             OUT:
                 Ship object or None if nothing found
             """
-            ships = self._ships_grid.get((x, y), None)
+            ships = self._ships_grid.get(coords, None)
             if ships:
                 return ships[-1]
 
@@ -1222,42 +1216,42 @@ init -10 python in mas_battleship:
 
             self.update()
 
-        def is_valid_place_for_ship(self, x, y, ship):
-            """
-            Checks if a ship can be placed at coordinates
+        # def is_valid_place_for_ship(self, x, y, ship):
+        #     """
+        #     Checks if a ship can be placed at coordinates
 
-            IN:
-                x - x coord for the ship bow
-                y - y coord for the ship bow
-                ship - ship
+        #     IN:
+        #         x - x coord for the ship bow
+        #         y - y coord for the ship bow
+        #         ship - ship
 
-            OUT:
-                bool - True if the place if valid, False otherwise
-            """
-            ship_length = ship.length
-            ship_orientation = ship.orientation
+        #     OUT:
+        #         bool - True if the place if valid, False otherwise
+        #     """
+        #     ship_length = ship.length
+        #     ship_orientation = ship.orientation
 
-            if ship_orientation == Ship.Orientation.UP:
-                x_coords = itertools.repeat(x, ship_length)
-                y_coords = range(y, y + ship_length)
+        #     if ship_orientation == Ship.Orientation.UP:
+        #         x_coords = itertools.repeat(x, ship_length)
+        #         y_coords = range(y, y + ship_length)
 
-            elif ship_orientation == Ship.Orientation.RIGHT:
-                x_coords = range(x, x - ship_length, -1)
-                y_coords = itertools.repeat(y, ship_length)
+        #     elif ship_orientation == Ship.Orientation.RIGHT:
+        #         x_coords = range(x, x - ship_length, -1)
+        #         y_coords = itertools.repeat(y, ship_length)
 
-            elif ship_orientation == Ship.Orientation.DOWN:
-                x_coords = itertools.repeat(x, ship_length)
-                y_coords = range(y, y - ship_length, -1)
+        #     elif ship_orientation == Ship.Orientation.DOWN:
+        #         x_coords = itertools.repeat(x, ship_length)
+        #         y_coords = range(y, y - ship_length, -1)
 
-            else:
-                x_coords = range(x, x + ship_length)
-                y_coords = itertools.repeat(y, ship_length)
+        #     else:
+        #         x_coords = range(x, x + ship_length)
+        #         y_coords = itertools.repeat(y, ship_length)
 
-            for _x, _y in zip(x_coords, y_coords):
-                if not self.is_empty_at(_x, _y):
-                    return False
+        #     for coords in zip(x_coords, y_coords):
+        #         if not self.is_empty_at(coords):
+        #             return False
 
-            return True
+        #     return True
 
         def find_place_for_ship(self, ship):
             """
@@ -1306,9 +1300,11 @@ init -10 python in mas_battleship:
                         x = col
                         y = row
 
+                    square = (x, y)
+
                     # If this square is free, add it to the line
-                    if self.is_empty_at(x, y):
-                        line.append((x, y))
+                    if self.is_empty_at(square):
+                        line.append(square)
 
                     # Otherwise we got all free squares we could
                     else:
@@ -1351,17 +1347,17 @@ init -10 python in mas_battleship:
             for cell in ship_cells:
                 # We have to iterate twice, if at least one cell is out of bounds,
                 # we want to mark all of them as conflict, so the player knows something is wrong
-                if not self.is_within(cell[0], cell[1]):
+                if not self.is_within(cell):
                     is_ship_within_grid = False
                     break
 
             for cell in ship_cells:
-                if is_ship_within_grid and self.is_empty_at(cell[0], cell[1]):
+                if is_ship_within_grid and self.is_empty_at(cell):
                     cell_state = self.CellState.SHIP
                 else:
                     cell_state = self.CellState.CONFLICT
 
-                self._set_cell_at(cell[0], cell[1], cell_state)
+                self._set_cell_at(cell, cell_state)
 
                 if add_to_map:
                     # If the ship was placed incorrectly, then its coords may be out of this grid
@@ -1373,13 +1369,13 @@ init -10 python in mas_battleship:
                 # if spacing, keep it
                 # if there's a ship, set conflict
                 # if conflict, keep it
-                if self.is_empty_or_spacing_at(cell[0], cell[1]):
+                if self.is_empty_or_spacing_at(cell):
                     cell_state = self.CellState.SPACING
 
                 else:
                     cell_state = self.CellState.CONFLICT
 
-                self._set_cell_at(cell[0], cell[1], cell_state)
+                self._set_cell_at(cell, cell_state)
 
             if add_to_map:
                 # Also add to the main list
@@ -1481,19 +1477,19 @@ init -10 python in mas_battleship:
                 self._health -= 1
 
         @staticmethod
-        def _apply_rotation_matrix(x, y, cos, sin, origin_x, origin_y, is_positive):
+        def _apply_rotation_matrix(point, cos, sin, origin_point, is_positive):
             """
             Rotates a point, using rotation matrix
 
             IN:
-                x - x coordinate
-                y - y coordinate
-                cos - rotation angle cosine
-                sin - rotation angle sine
-                origin_x - x coordinate of the point to rotate around
-                origin_y - y coordinate of the point to rotate around
+                point - tuple[int, int] - point coordinates
+                cos - number - rotation angle cosine
+                sin - number- rotation angle sine
+                origin_point - tuple[int, int] - coordinates of the point to rotate around
                 is_positive - whether or not the rotation angle is positive
             """
+            x, y = point
+            origin_x, origin_y = origin_point
             factor = 1 if is_positive else -1
             new_x = origin_x + (x - origin_x) * cos - factor * (y - origin_y) * sin
             new_y = origin_y + (y - origin_y) * cos + factor * (x - origin_x) * sin
@@ -1501,16 +1497,14 @@ init -10 python in mas_battleship:
             return (new_x, new_y)
 
         @classmethod
-        def _rotate_point(cls, x, y, angle, origin_x, origin_y):
+        def _rotate_point(cls, point, angle, origin_point):
             """
             Rotates a point, using rotation matrix
 
             IN:
-                x - x coordinate
-                y - y coordinate
-                angle - rotation angle
-                origin_x - x coordinate of the point to rotate around
-                origin_y - y coordinate of the point to rotate around
+                point - tuple[int, int] - point coordinates
+                angle - int - rotation angle
+                origin_point - tuple[int, int] - coordinates of the point to rotate around
             """
             # Get the rotation direction
             is_positive = angle >= 0
@@ -1520,55 +1514,49 @@ init -10 python in mas_battleship:
             sin = int(meth.sin(angle))
             # Rotate
             return cls._apply_rotation_matrix(
-                x=x,
-                y=y,
+                point=point,
                 cos=cos,
                 sin=sin,
-                origin_x=origin_x,
-                origin_y=origin_y,
+                origin_point=origin_point,
                 is_positive=is_positive,
             )
 
-        def _rotate(self, angle, origin_x, origin_y):
+        def _rotate(self, angle, origin_point):
             """
             Rotates this ship's bow around the given origin
             NOTE: this doesn't update the orientation and drag_point props, assuming these'll be set afterwards
 
             IN:
-                angle - angle to rotate by
+                angle - int - angle to rotate by
                     NOTE: in degrees
                     NOTE: assumes it was sanitized to be between 0-270
-                origin_x - origin x to rotate around
-                origin_y - origin y to rotate around
+                origin_point - tuple[int, int] - coordinates of the point to rotate around
             """
-            if self.bow_coords == (origin_x, origin_y):
+            if self.bow_coords == origin_point:
                 # Don't rotate around itself
                 return
 
             self.bow_coords = self._rotate_point(
-                x=self.bow_coords[0],
-                y=self.bow_coords[1],
+                point=self.bow_coords,
                 angle=angle,
-                origin_x=origin_x,
-                origin_y=origin_y,
+                origin_point=origin_point,
             )
 
-        def rotate(self, angle, origin_x, origin_y):
+        def rotate(self, angle, origin_point):
             """
             Public method for rotating this ship
 
             IN:
-                angle - angle to rotate by
+                angle - int - angle to rotate by
                     NOTE: in degrees
-                origin_x - origin x to rotate around
-                origin_y - origin y to rotate around
+                origin_point - tuple[int, int] - coordinates of the point to rotate around
             """
             angle %= 360
             # Sanity check
             if angle == 0 or angle % 90 != 0:
                 return
 
-            self._rotate(angle, origin_x, origin_y)
+            self._rotate(angle, origin_point)
             self._orientation += angle
             self._orientation %= 360
 
@@ -1708,8 +1696,8 @@ init -10 python in mas_battleship:
             IN:
                 x - x coord for the ship bow
                 y - y coord for the ship bow
-                length - ship length
-                orientation - ship orientation, if None, it will be chosen at random
+                length - int - ship length
+                orientation - Ship.Orientation - if None, it will be chosen at random
                     (Default: None)
 
             OUT:
@@ -2156,19 +2144,18 @@ init -10 python in mas_battleship:
 
             return (min_, max_)
 
-        def _is_valid_target_cell(self, x, y, enemy_grid):
+        def _is_valid_target_cell(self, coords, enemy_grid):
             """
             Checks if the given cell is valid for targeting
 
             IN:
-                x - int - x coord
-                y - int - y coord
+                coords - tuple[int, int] - coordinates of the cell
                 enemy_grid - Grid - enemy ships grid
 
             OUT:
                 bool
             """
-            return enemy_grid.is_within(x, y) and (x, y) not in self.cells_blacklist
+            return enemy_grid.is_within(coords) and coords not in self.cells_blacklist
 
         def _reset_target(self):
             self.found_ship_at = None
@@ -2215,20 +2202,20 @@ init -10 python in mas_battleship:
             self.search_coords_down = []
             self.search_coords_left = []
             for y in range(base_y - 1, base_y - max_ship_len, -1):
-                if not self._is_valid_target_cell(base_x, y, enemy_grid):
+                if not self._is_valid_target_cell((base_x, y), enemy_grid):
                     # No reason to go further, we know the ship ends before this cell
                     break
                 self.search_coords_up.append((base_x, y))
             for x in range(base_x + 1, base_x + max_ship_len):
-                if not self._is_valid_target_cell(x, base_y, enemy_grid):
+                if not self._is_valid_target_cell((x, base_y), enemy_grid):
                     break
                 self.search_coords_right.append((x, base_y))
             for y in range(base_y + 1, base_y + max_ship_len):
-                if not self._is_valid_target_cell(base_x, y, enemy_grid):
+                if not self._is_valid_target_cell((base_x, y), enemy_grid):
                     break
                 self.search_coords_down.append((base_x, y))
             for x in range(base_x - 1, base_x - max_ship_len, -1):
-                if not self._is_valid_target_cell(x, base_y, enemy_grid):
+                if not self._is_valid_target_cell((x, base_y), enemy_grid):
                     break
                 self.search_coords_left.append((x, base_y))
 
@@ -2281,20 +2268,20 @@ init -10 python in mas_battleship:
             total_cells_down = 0
             total_cells_left = 0
             for y in range(base_y - 1, base_y - max_ship_len, -1):
-                if not self._is_valid_target_cell(base_x, y, enemy_grid):
+                if not self._is_valid_target_cell((base_x, y), enemy_grid):
                     # No reason to go further, we know the ship ends before this cell
                     break
                 total_cells_up += 1
             for x in range(base_x + 1, base_x + max_ship_len):
-                if not self._is_valid_target_cell(x, base_y, enemy_grid):
+                if not self._is_valid_target_cell((x, base_y), enemy_grid):
                     break
                 total_cells_right += 1
             for y in range(base_y + 1, base_y + max_ship_len):
-                if not self._is_valid_target_cell(base_x, y, enemy_grid):
+                if not self._is_valid_target_cell((base_x, y), enemy_grid):
                     break
                 total_cells_down += 1
             for x in range(base_x - 1, base_x - max_ship_len, -1):
-                if not self._is_valid_target_cell(x, base_y, enemy_grid):
+                if not self._is_valid_target_cell((x, base_y), enemy_grid):
                     break
                 total_cells_left += 1
 
@@ -2308,7 +2295,7 @@ init -10 python in mas_battleship:
             min_ship_len, max_ship_len = self._get_min_max_ship_len(game._player)
 
             if self.found_ship_at is not None:
-                ship = game._player.grid.get_ship_at(self.found_ship_at[0], self.found_ship_at[1])
+                ship = game._player.grid.get_ship_at(self.found_ship_at)
                 # Shouldn't be none, but just in case
                 if ship is not None:
                     if ship.is_alive():
@@ -2325,7 +2312,7 @@ init -10 python in mas_battleship:
 
                         # We have a direction we want to SEARCH and DESTROY
                         cell = self.current_search_coords.pop(0)
-                        if game._player.grid.is_ship_at(cell[0], cell[1]):
+                        if game._player.grid.is_ship_at(cell):
                             # We hit, which means we know ship's orientation now
                             if self.current_search_coords is self.search_coords_up or self.current_search_coords is self.search_coords_down:
                                 self.search_coords_left[:] = []
@@ -2364,7 +2351,7 @@ init -10 python in mas_battleship:
 
                 if self._is_good_target_at(cell, min_ship_len, max_ship_len, game._player.grid):
                     # If we found a ship, set it as a target for next turns
-                    if game._player.grid.is_ship_at(cell[0], cell[1]):
+                    if game._player.grid.is_ship_at(cell):
                         self.found_ship_at = cell
 
                     return cell
