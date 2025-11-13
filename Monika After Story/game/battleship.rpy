@@ -158,29 +158,29 @@ label mas_battleship_game_start:
 # label mas_battleship_pick_first_player:
     $ mas_battleship.game.pick_first_player()
     $ mas_battleship.game.set_phase_action()
-    # $ rng = random.random()
-    # if mas_battleship.game.is_player_turn():
-    #     if rng < 0.25:
-    #         m 3eub "Your turn is first, [mas_get_player_nickname()]."
-    #     elif rng < 0.5:
-    #         m 3eua "You'll shoot first."
-    #     elif rng < 0.75:
-    #         m 3eua "You got first turn, [player]"
-    #     else:
-    #         m 3eua "Your turn."
-    # else:
-    #     if rng < 0.25:
-    #         m 3hub "First turn is mine~"
-    #     elif rng < 0.50:
-    #         m 3eua "I take first turn."
-    #     elif rng < 0.75:
-    #         m 3eua "I have first turn."
-    #     else:
-    #         m 3eua "I'll be playing first."
-    # $ del rng
+    $ rng = random.random()
+    if mas_battleship.game.is_player_turn():
+        if rng < 0.25:
+            m 3eub "Your turn is first, [mas_get_player_nickname()]."
+        elif rng < 0.5:
+            m 3eua "You'll shoot first."
+        elif rng < 0.75:
+            m 3eua "You got first turn, [player]"
+        else:
+            m 3eua "Your turn."
+    else:
+        if rng < 0.25:
+            m 3hub "First turn is mine~"
+        elif rng < 0.50:
+            m 3eua "I take first turn."
+        elif rng < 0.75:
+            m 3eua "I have first turn."
+        else:
+            m 3eua "I'll be playing first."
+    $ del rng
 
-    # m 1eub "Position your ships."
-    # show monika 1eua
+    m 1eub "Position your ships."
+    show monika 1eua
 
     $ mas_battleship.game.is_sensitive = True
 
@@ -202,25 +202,25 @@ label mas_battleship_game_end:
     if mas_battleship.game.is_player_winner():
         $ mas_battleship.increment_player_wins()
 
-        # if player_wins > 5 and player_wins > moni_wins and rng < 0.3:
-        #     m 1hua "Another win for you!"
-        #     m 3hub "Well done, [mas_get_player_nickname(regex_replace_with_nullstr='my ')]!"
+        if player_wins > 5 and player_wins > moni_wins and rng < 0.3:
+            m 1hua "Another win for you!"
+            m 3hub "Well done, [mas_get_player_nickname(regex_replace_with_nullstr='my ')]!"
 
-        # else:
-        #     m 1hub "Congrats, [player]!{w=0.2} {nw}"
-        #     extend 3hub "You won~"
+        else:
+            m 1hub "Congrats, [player]!{w=0.2} {nw}"
+            extend 3hub "You won~"
 
     elif mas_battleship.game.is_monika_winner():
         $ mas_battleship.increment_monika_wins()
 
-        # if moni_wins > 5 and moni_wins > player_wins and rng < 0.3:
-        #     m 3hub "Yet another win for me!"
-        #     m 1hua "Ehehe~"
+        if moni_wins > 5 and moni_wins > player_wins and rng < 0.3:
+            m 3hub "Yet another win for me!"
+            m 1hua "Ehehe~"
 
-        # else:
-        #     m 1wub "I won!"
-        #     m 1tuu "Better luck next time, [mas_get_player_nickname(regex_replace_with_nullstr='my ')]~"
-        #     m 1hua "Ehehe~"
+        else:
+            m 1wub "I won!"
+            m 1tuu "Better luck next time, [mas_get_player_nickname(regex_replace_with_nullstr='my ')]~"
+            m 1hua "Ehehe~"
 
     elif mas_battleship.game.did_player_giveup():
         if mas_battleship.game.get_turn_count() == 0:
@@ -244,7 +244,7 @@ label mas_battleship_game_end:
     else:
         $ mas_battleship.log_err("invalid game phase when reached mas_battleship_game_end label")
         m 2wuo "[player], you shouldn't be able to see this! Is it a bug?"
-    jump mas_battleship_game_start
+
     # Only suggest to play again if player finished last game
     if mas_battleship.game.is_player_winner() or mas_battleship.game.is_monika_winner():
         $ play_again_question = random.choice((
@@ -497,7 +497,7 @@ init -10 python in mas_battleship:
             self._player = Player()
             self._monika = AIPlayer(None)
             self._monika.strategy = ScholarStrategy(self._monika, self._player)
-            self.test = HunterStrategy(self._player, self._monika)
+            # self.test = HunterStrategy(self._player, self._monika)
 
         def pick_first_player(self):
             """
@@ -1167,11 +1167,11 @@ init -10 python in mas_battleship:
                 self._switch_turn(False)
                 return
 
-            # quip = self._monika.pick_turn_start_quip(self, coords)
-            # if quip is not None:
-            #     self.monika_say(quip[1], quip[0])
-            # else:
-            #     renpy.pause(0.05)
+            quip = None#self._monika.pick_turn_start_quip(self, coords)
+            if quip is not None:
+                self.monika_say(quip[1], quip[0])
+            else:
+                renpy.pause(0.05)
 
             ship = self._player.grid.get_ship_at(coords)
             if ship is None:
@@ -1199,28 +1199,28 @@ init -10 python in mas_battleship:
                 self._monika._hits,
                 self._monika._misses,
             )
-            if self.is_player_turn() and self.is_in_action():
-                cell = self.test.pick_cell(self)
-                if cell is None:
-                    log_err("test strategy returned None from pick_cell")
-                    renpy.pause(0.1)
-                    return
-                ship = self._monika.grid.get_ship_at(cell)
-                if ship is None:
-                    self._player.register_miss(cell)
-                else:
-                    self._player.register_hit(cell)
-                    ship.take_hit()
-                    if not ship.is_alive():
-                        if self._monika.has_lost_all_ships():
-                            self.set_phase_done()
-                            self.mark_player_won()
-                self._switch_turn()
+            # if self.is_player_turn() and self.is_in_action():
+            #     cell = self.test.pick_cell(self)
+            #     if cell is None:
+            #         log_err("test strategy returned None from pick_cell")
+            #         renpy.pause(0.1)
+            #         return
+            #     ship = self._monika.grid.get_ship_at(cell)
+            #     if ship is None:
+            #         self._player.register_miss(cell)
+            #     else:
+            #         self._player.register_hit(cell)
+            #         ship.take_hit()
+            #         if not ship.is_alive():
+            #             if self._monika.has_lost_all_ships():
+            #                 self.set_phase_done()
+            #                 self.mark_player_won()
+            #     self._switch_turn()
             if not self.is_done():
                 # NOTE: We don't check for player turn here to always start an interaction
                 # for stuff like mouse motion
-                # ui.interact(type="minigame")
-                renpy.pause(0.01)
+                ui.interact(type="minigame")
+                # renpy.pause(0.1)
 
         def visit(self):
             return [
@@ -2480,7 +2480,7 @@ init -10 python in mas_battleship:
                 self.search_coords_down.append((base_x, y))
             for x in range(base_x - 1, base_x - max_ship_len, -1):
                 if not self._is_valid_target_cell((x, base_y), enemy_grid):
-                    log_err("cant search {} and right".format((x, base_y)))
+                    log_err("cant search {} and left".format((x, base_y)))
                     break
                 self.search_coords_left.append((x, base_y))
 
@@ -2605,6 +2605,13 @@ init -10 python in mas_battleship:
                             self._prune_search_coords(min_ship_len)
                             self.current_search_coords = self._pick_search_coords()
 
+                        # BUG: this might cause an issue when we won't be able to shoot past this cell later on even if there lies the rest of the ship, flow:
+                        # 1. ssss
+                        # 2. sxss
+                        # 3. sxxs
+                        # 4. sxxx
+                        # 5. sxxxo
+                        # 6. and we're stuck
                         self.mark_cell_used(cell)
                         return cell
 
@@ -2636,13 +2643,15 @@ init -10 python in mas_battleship:
     class ScholarStrategy(object):
         """
         Smart strategy that utilises probabilities rather than pure chance in finding ships and targeting them down
+
+        Credits to Nick Berry for the idea that become the core of this implementation
         """
         def __init__(self, me, enemy):
             self.me = me
             self.enemy = enemy
             self.heatmap = {}
             self.render_heatmap = False
-            self.blacklist = set()
+            self.dead_ships_spacing = set() # type: set[tuple[int, int]]
 
         @staticmethod
         def _interpolate_num(a, b, f):
@@ -2695,118 +2704,216 @@ init -10 python in mas_battleship:
             return color_map
 
         def _update_heatmap(self, enemy_grid, hits, misses):
-            self.heatmap.clear()
+            """
+            Analyzes enemy grid using dealt hits and misses, and refills the heatmap
+            NOTE: This is a heavy function, mind when you call it
 
-            def increment_temp(xi, yi, amount):
+            IN:
+                enemy_grid - Grid - the grid of another player
+                hits - set[tuple[int, int]] - set of coordinates of successful hits
+                misses - set[tuple[int, int]] - set of coordinates of our misses
+            """
+            ### START: internal utility functions
+            def increment_temp(heatmap, xi, yi, amount):
+                """
+                Increases temperature for the given points
+
+                IN:
+                    heatmap - dict[tuple[int, int], int] - heatmap to update
+                    xi - Iterator[int] - iterator over x coordinates
+                    yi - Iterator[int] - iterator over y coordinates
+                    amount - int - temp increase
+                """
                 for coords in zip(xi, yi):
-                    if coords not in self.heatmap:
-                        self.heatmap[coords] = amount
-                    elif coords not in hits:
-                        self.heatmap[coords] += amount
+                    if coords not in heatmap:
+                        heatmap[coords] = 0
+                    if coords not in hits:
+                        heatmap[coords] += amount
 
-            def is_ship_alive_at(coords):
-                ship = enemy_grid.get_ship_at(coords)
+            def is_ship_alive_at(grid, square):
+                """
+                Checks if there's a ship that's still active
+
+                IN:
+                    grid - Grid - the grid where the ship presumably is
+                    square - tuple[int, int] - the coordinates on the grid to check
+
+                ASSUMES:
+                    We shoot at that square before (see Player.hits), otherwise it's cheating!
+
+                OUT:
+                    bool
+                """
+                ship = grid.get_ship_at(square)
                 return ship is not None and ship.is_alive()
 
-            def get_vert_adjacent_hits(cell):
-                x, y = cell
+            def get_vert_adjacent_hits(grid, square):
+                """
+                Returns a list of adjacent squares to the up or down
+                where we hit a ship before and that ship is still alive
+                This might indicate that the current square also has that ship
+
+                IN:
+                    grid - Grid - the grid for which we fill the heatmap
+                    square - tuple[int, int] - the cell to check around
+
+                OUT:
+                    list[tuple[int, int]]
+                """
+                x, y = square
                 neighbours = []
                 if y > 0:
                     n = (x, y-1)
-                    if n in hits and is_ship_alive_at(n):
+                    if n in hits and is_ship_alive_at(grid, n):
                         neighbours.append(n)
                 if y + 1 < enemy_grid.HEIGHT:
                     n = (x, y+1)
-                    if n in hits and is_ship_alive_at(n):
+                    if n in hits and is_ship_alive_at(grid, n):
                         neighbours.append(n)
                 return neighbours
 
-            def get_horiz_adjacent_hits(cell):
-                x, y = cell
+            def get_horiz_adjacent_hits(grid, square):
+                """
+                Returns a list of adjacent squares to the right or left
+                where we hit a ship before and that ship is still alive
+                This might indicate that the current square also has that ship
+
+                IN:
+                    grid - Grid - the grid for which we fill the heatmap
+                    square - tuple[int, int] - the cell to check around
+
+                OUT:
+                    list[tuple[int, int]]
+                """
+                x, y = square
                 neighbours = []
                 if x + 1 < enemy_grid.WIDTH:
                     n = (x+1, y)
-                    if n in hits and is_ship_alive_at(n):
+                    if n in hits and is_ship_alive_at(grid, n):
                         neighbours.append(n)
                 if x > 0:
                     n = (x-1, y)
-                    if n in hits and is_ship_alive_at(n):
+                    if n in hits and is_ship_alive_at(grid, n):
                         neighbours.append(n)
                 return neighbours
 
-            def get_temp_increment(xi, yi, is_vertical):
-                bonus_inc = 0
+            def get_temp_increment(xi, yi, grid, is_vertical):
+                """
+                Returns temperature for the given points, the points are forming a line where
+                a ship could fit. By default a square has temp of 1 for each ship it could contain.
+                If there's successful hits along the line, we give extra temperature because it means
+                there's likely a ship (or at least it's nearby)
+
+                IN:
+                    xi - Iterator[int] - iterator over x coordinates
+                    yi - Iterator[int] - iterator over y coordinates
+                    grid - Grid - the grid for which we fill the heatmap
+                    is_vertical - bool - is this position vertical or horizontal
+
+                OUT:
+                    int - temperature for the points
+                """
+                bonus_temp = 0
                 for coords in zip(xi, yi):
+                    # Empty square
                     if coords in misses:
-                        # Empty cell
                         return 0
-                    if coords in self.blacklist:
-                        # Known ship spacing
+
+                    # Known ship spacing
+                    if coords in self.dead_ships_spacing:
                         return 0
+
+                    # If we previously hit a ship at this location, we want to finish it
                     if coords in hits:
-                        # We previously hit a ship at this location, we want to finish it
-                        if is_ship_alive_at(coords):
-                            vneighbours = get_vert_adjacent_hits(coords)
-                            hneighbours = get_horiz_adjacent_hits(coords)
-                            if (
-                                (is_vertical and vneighbours)
-                                or (not is_vertical and hneighbours)
-                            ):
-                                bonus_inc += 6
-                            elif not vneighbours and not hneighbours:
-                                bonus_inc += 4
-                            else:
-                                bonus_inc += 2
-                        else:
-                            # The ship is dead
+                        if not is_ship_alive_at(grid, coords):
                             return 0
-                # Unexplored cell
-                return 1 + bonus_inc
 
-            for row in range(enemy_grid.HEIGHT):
-                for col in range(enemy_grid.WIDTH):
-                    cell = (col, row)
-                    # if cell not in self.heatmap:
-                    #     self.heatmap[cell] = 0
-                    if cell in misses:
-                        continue
-                    if cell in hits and not is_ship_alive_at(cell):
-                        continue
-                    if cell in self.blacklist:
-                        continue
+                        vneighbours = get_vert_adjacent_hits(grid, coords)
+                        hneighbours = get_horiz_adjacent_hits(grid, coords)
+                        if (
+                            (is_vertical and vneighbours)
+                            or (not is_vertical and hneighbours)
+                        ):
+                            # We have cells up/down for vertical ship or right/left for horizontal ship
+                            # So we want to focus vertically/horizontally
+                            bonus_temp += 15
+                        elif not vneighbours and not hneighbours:
+                            # We don't have any adjacent hits, so we focus around the last hit forming + pattern
+                            bonus_temp += 10
+                        else:
+                            # The ship is vertical, but hits are to left/right
+                            # or the ship is horizontal, but hits are above/below
+                            # not much reason to shoot this position, but it's worth more than unknown cells at all?
+                            # just a theory, maybe I'm wrong and we should return 1 or even 0 due to spacing around ships
+                            bonus_temp += 0#5
 
-                    for ship in enemy_grid.iter_ships():
-                        if not ship.is_alive():
+                # Unexplored cell where a ship can be have 1 by default
+                return 1 + bonus_temp
+
+            ### END: internal utility functions
+            self.heatmap.clear()
+
+            # analyzed_lengths = set()
+            for ship in enemy_grid.iter_ships():
+                # Only count active ships
+                if not ship.is_alive():
+                    continue
+                # Don't analyze the ships of the same length, they'd be placed in the same way
+                ship_length = ship.length
+                # if ship_length in analyzed_lengths:
+                #     continue
+                # analyzed_lengths.add(ship_length)
+
+                for row in range(enemy_grid.HEIGHT):
+                    for col in range(enemy_grid.WIDTH):
+                        cell = (col, row)
+                        if cell not in self.heatmap:
+                            self.heatmap[cell] = 0
+                        if cell in misses:
                             continue
-                        ship_length = ship.length
+                        if cell in hits and not is_ship_alive_at(enemy_grid, cell):
+                            continue
+                        if cell in self.dead_ships_spacing:
+                            continue
 
-                        # Check if the ship would fit within the grid
-                        if row - ship_length + 1 >= 0:
-                            xi_for_validation, xi = itertools.tee(itertools.repeat(col, ship_length), 2)
-                            yi_for_validation, yi = itertools.tee(range(row, row-ship_length, -1), 2)
-                            amount = get_temp_increment(xi_for_validation, yi_for_validation, is_vertical=True)
-                            increment_temp(xi, yi, amount)
+                        # if row - ship_length + 1 >= 0:
+                        #     xi_for_validation, xi = itertools.tee(itertools.repeat(col, ship_length), 2)
+                        #     yi_for_validation, yi = itertools.tee(range(row, row-ship_length, -1), 2)
+                        #     amount = get_temp_increment(xi_for_validation, yi_for_validation, is_vertical=True)
+                        #     if amount:
+                        #         increment_temp(xi, yi, amount)
+
+                        # We only check right and down orientations since left and up would be just the same,
+                        # no reason to do extra work
 
                         if col + ship_length - 1 < enemy_grid.WIDTH:
                             xi_for_validation, xi = itertools.tee(range(col, col + ship_length), 2)
                             yi_for_validation, yi = itertools.tee(itertools.repeat(row, ship_length), 2)
-                            amount = get_temp_increment(xi_for_validation, yi_for_validation, is_vertical=False)
-                            increment_temp(xi, yi, amount)
+                            amount = get_temp_increment(xi_for_validation, yi_for_validation, enemy_grid, is_vertical=False)
+                            if amount:
+                                increment_temp(self.heatmap, xi, yi, amount)
 
                         if row + ship_length - 1 < enemy_grid.HEIGHT:
                             xi_for_validation, xi = itertools.tee(itertools.repeat(col, ship_length), 2)
                             yi_for_validation, yi = itertools.tee(range(row, row+ship_length), 2)
-                            amount = get_temp_increment(xi_for_validation, yi_for_validation, is_vertical=True)
-                            increment_temp(xi, yi, amount)
+                            amount = get_temp_increment(xi_for_validation, yi_for_validation, enemy_grid, is_vertical=True)
+                            if amount:
+                                increment_temp(self.heatmap, xi, yi, amount)
 
-                        if col - ship_length + 1 >= 0:
-                            xi_for_validation, xi = itertools.tee(range(col, col-ship_length, -1), 2)
-                            yi_for_validation, yi = itertools.tee(itertools.repeat(row, ship_length), 2)
-                            amount = get_temp_increment(xi_for_validation, yi_for_validation, is_vertical=False)
-                            increment_temp(xi, yi, amount)
+                        # if col - ship_length + 1 >= 0:
+                        #     xi_for_validation, xi = itertools.tee(range(col, col-ship_length, -1), 2)
+                        #     yi_for_validation, yi = itertools.tee(itertools.repeat(row, ship_length), 2)
+                        #     amount = get_temp_increment(xi_for_validation, yi_for_validation, is_vertical=False)
+                        #     if amount:
+                        #         increment_temp(xi, yi, amount)
 
-        def mark_cell_used(self, cell):
-            self.blacklist.add(cell)
+            # In case all ships are dead, use 0'd heatmap
+            if not self.heatmap:
+                self.heatmap = {
+                    (col, row): 0
+                    for row in range(Grid.HEIGHT)
+                    for col in range(Grid.WIDTH)
+                }
 
         def pick_cell(self, game):
             self._update_heatmap(
@@ -2825,6 +2932,6 @@ init -10 python in mas_battleship:
             if ship is not None and ship._health == 1:
                 _, spacing_cells = ship.get_cells()
                 for cell in spacing_cells:
-                    self.mark_cell_used(cell)
+                    self.dead_ships_spacing.add(cell)
 
             return coords
