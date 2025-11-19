@@ -2,16 +2,65 @@
 # # # MAS BATTLESHPS YO
 
 # GAME PERSISTENT VARIABLES
-default persistent._mas_game_battleship_best_score = {"Monika": 0, "Player": 0}
+# default persistent._mas_game_battleship_best_score = {"Monika": 0, "Player": 0}
 default persistent._mas_game_battleship_wins = {"Monika": 0, "Player": 0}
 default persistent._mas_game_battleship_abandoned = 0
+# TODO: replace grid dicts with lists of lists?
+# TODO: rename to _mas_game_battleship_player_ship_dataset
+default persistent._mas_game_battleship_player_ship_heatmap = {
+    (col, row): 0
+    for row in range(store.mas_battleship.Grid.HEIGHT)
+    for col in range(store.mas_battleship.Grid.WIDTH)
+}
+# for i in range(10):
+#     persistent._mas_game_battleship_player_ship_heatmap[(0, i)] += 20
+
+init 5 python:
+    addEvent(
+        Event(
+            persistent.event_database,
+            eventlabel="mas_battleship_show_player_heatmap",
+            category=["dev"],
+            prompt="SHOW PLAYER SHIP DATA HEATMAP",
+            rules={"keep_idle_exp": None},
+            pool=True,
+            unlocked=True,
+        )
+    )
+label mas_battleship_show_player_heatmap:
+    $ show_raw = False
+    m 3eua "Raw or probabilities?{nw}"
+    $ _history_list.pop()
+    menu:
+        m "Raw or probabilities?{fast}"
+
+        "Raw.":
+            $ show_raw = True
+
+        "Probabilities":
+            pass
+
+    python:
+        tmp_game = mas_battleship.Battleship()
+        if show_raw:
+            tmp_game._monika.heatmap = dict(persistent._mas_game_battleship_player_ship_heatmap)
+        else:
+            tmp_game._monika.heatmap = {
+                k: round(float(v) / sum(persistent._mas_game_battleship_player_ship_heatmap.values()) * 100, 2)
+                for k, v in persistent._mas_game_battleship_player_ship_heatmap.items()
+            }
+        tmp_game._render_monika_heatmap = True
+
+    show monika 1eua at t31
+    show screen mas_battleship_ui(tmp_game)
+    m ""
+    hide screen mas_battleship_ui
+    show monika at t11
+    $ del show_raw, tmp_game
+    return
 
 init 999 python:
     mas_enable_quit()
-    while mas_inEVL("mas_battleship_game_start"):
-        mas_rmEVL("mas_battleship_game_start")
-    if persistent.current_monikatopic != "mas_battleship_game_start":
-        queueEvent("mas_battleship_game_start")
 
 screen mas_battleship_ui(game):
     layer "minigames"
@@ -115,7 +164,18 @@ screen mas_battleship_ui(game):
                         text "Hits: [mh]"
                         text "Misses: [mm]"
 
-
+init 5 python:
+    addEvent(
+        Event(
+            persistent.event_database,
+            eventlabel="mas_battleship_game_start",
+            category=["dev"],
+            prompt="START DEMO BATTLESHIP",
+            rules={"keep_idle_exp": None},
+            pool=True,
+            unlocked=True,
+        )
+    )
 label mas_battleship_game_start:
     window hide
     $ HKBHideButtons()
@@ -129,7 +189,6 @@ label mas_battleship_game_start:
     # $ renpy.start_predict(mas_battleship.game)
     $ mas_battleship.game.build_and_place_monika_ships()
     $ mas_battleship.game.build_and_place_player_ships()
-    # $ mas_battleship.game._monika.strategy.render_heatmap = True
 
     show monika 1eua at t31
     show screen mas_battleship_ui(mas_battleship.game)
@@ -157,7 +216,6 @@ label mas_battleship_game_start:
 
 # label mas_battleship_pick_first_player:
     $ mas_battleship.game.pick_first_player()
-    $ mas_battleship.game.set_phase_action()
     $ rng = random.random()
     if mas_battleship.game.is_player_turn():
         if rng < 0.25:
@@ -187,14 +245,16 @@ label mas_battleship_game_start:
     # FALL THROUGH
 
 label mas_battleship_game_loop:
+    # NOTE: the while cycle is out of the game_loop function to properly work with rollback for devs
     while not mas_battleship.game.is_done():
         $ mas_battleship.game.game_loop()
 
-    pause 1.5
+    pause 1.0
     # FALL THROUGH
 
 label mas_battleship_game_end:
     python:
+        mas_battleship.collect_player_data(mas_battleship.game)
         moni_wins = mas_battleship.get_monika_wins()
         player_wins = mas_battleship.get_player_wins()
         rng = random.random()
@@ -380,6 +440,10 @@ init -10 python in mas_battleship:
     def get_total_games():
         return get_monika_wins() + get_player_wins()
 
+    def collect_player_data(game):
+        for coords in game._player.grid.get_all_squares_with_ships():
+            persistent._mas_game_battleship_player_ship_heatmap[coords] += 1
+
 
     class Battleship(renpy.display.core.Displayable):
         """
@@ -474,8 +538,6 @@ init -10 python in mas_battleship:
             PLAYER_GAVEUP = 3
 
         def __init__(self):
-            """
-            """
             super(Battleship, self).__init__()
 
             self._last_mouse_x = 0
@@ -484,40 +546,38 @@ init -10 python in mas_battleship:
             self.is_sensitive = False
 
             self._turn = 0
-            self._is_player_turn = False
+            self._turn_flag = False
             self._phase = self.GamePhase.PREPARATION
             self._win_state = self.WinState.UNKNOWN
 
             self._hovered_cell = None
             self._dragged_ship = None
-            self._grid_conflicts = []
+            self._grid_conflicts = [] # type: list[tuple[int, int]]
+            self._render_monika_heatmap = False
 
             self._ship_sprites_cache = {}
 
             self._player = Player()
-            self._monika = AIPlayer(None)
-            self._monika.strategy = ScholarStrategy(self._monika, self._player)
-            # self.test = HunterStrategy(self._player, self._monika)
+            self._monika = AIPlayer()
 
         def pick_first_player(self):
             """
             Decides who will shoot in the first turn, sets the flag
             """
-            self._is_player_turn = random.random() < 0.5
+            self._turn_flag = random.random() < 0.5
 
-        def _switch_turn(self, count_turn=True):
+        def _switch_turn(self):
             """
             Switches turn between Monika and player
             """
-            self._is_player_turn = not self._is_player_turn
-            if count_turn:
-                self._turn += 1
+            self._turn_flag ^= True
+            self._turn += 1
 
         def get_turn_count(self):
             return self._turn
 
         def is_player_turn(self):
-            return self._is_player_turn
+            return self._turn_flag
 
         def is_monika_turn(self):
             return not self.is_player_turn()
@@ -885,18 +945,6 @@ init -10 python in mas_battleship:
                         x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
                         main_render.subpixel_blit(error_mask_render, (x, y))
 
-            if self._monika.strategy.render_heatmap:
-                for coords, color in self._monika.strategy.get_heatmap_colors().items():
-                    heat_overlay = store.Solid(color, xsize=32, ysize=32)
-                    x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
-                    color_render = renpy.render(heat_overlay, width, height, st, at)
-                    main_render.subpixel_blit(color_render, (x, y))
-
-                    temp = str(self._monika.strategy.heatmap[coords])
-                    txt = store.Text(temp, color=(0, 0, 0, 255), size=12, outlines=[])
-                    txt_render = renpy.render(txt, width, height, st, at)
-                    main_render.subpixel_blit(txt_render, (x, y))
-
             # Render player's ships
             for ship in self._player.iter_ships():
                 ship_sprite = self._get_ship_sprite(ship)
@@ -963,6 +1011,18 @@ init -10 python in mas_battleship:
                         (self._last_mouse_x - self.CELL_WIDTH / 2 + x_offset),
                         (self._last_mouse_y - self.CELL_HEIGHT / 2 + y_offset)
                     )
+
+            if self._render_monika_heatmap:
+                for coords, color in self._monika.get_heatmap_colors().items():
+                    heat_overlay = store.Solid(color.replace_opacity(0.8), xsize=32, ysize=32)
+                    x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
+                    color_render = renpy.render(heat_overlay, width, height, st, at)
+                    main_render.subpixel_blit(color_render, (x, y))
+
+                    temp = str(round(self._monika.heatmap[coords], 3))
+                    txt = store.Text(temp, color=(0, 0, 0, 255), size=12, outlines=(), alpha=0.8)
+                    txt_render = renpy.render(txt, width, height, st, at)
+                    main_render.subpixel_blit(txt_render, (x, y))
 
             return main_render
 
@@ -1091,7 +1151,7 @@ init -10 python in mas_battleship:
 
             # # # The player releases the mouse button potentially shooting
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
-                if not self.is_player_turn():
+                if self.is_monika_turn():
                     return None
 
                 coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN)
@@ -1099,20 +1159,9 @@ init -10 python in mas_battleship:
                     return None
 
                 if self._player.has_shot_at(coords):
-                    # Already shot there
                     return None
 
-                ship = self._monika.grid.get_ship_at(coords)
-                if ship is None:
-                    self._player.register_miss(coords)
-
-                else:
-                    self._player.register_hit(coords)
-                    ship.take_hit()
-                    if not ship.is_alive():
-                        if self._monika.has_lost_all_ships():
-                            self.set_phase_done()
-                            self.mark_player_won()
+                self.register_shot(self._player, self._monika, coords)
 
                 self._switch_turn()
                 self._redraw_now()
@@ -1130,7 +1179,7 @@ init -10 python in mas_battleship:
             self._last_mouse_y = y
 
             if ev.type == pygame.KEYDOWN and ev.key == pygame.K_h:
-                self._monika.strategy.render_heatmap = not self._monika.strategy.render_heatmap
+                self._render_monika_heatmap ^= True
 
             # When disabled we only process mouse motions
             if not self.is_sensitive and ev.type != pygame.MOUSEMOTION:
@@ -1156,15 +1205,15 @@ init -10 python in mas_battleship:
                 log_err("called Battleship.handle_monika_turn, but it's player's turn")
                 return
 
-            coords = self._monika.pick_cell_for_attack(self)
+            coords = self._monika.pick_square_for_attack(self._player)
             if coords is None:
-                log_err("AIPlayer.pick_cell_for_attack returned None")
-                self._switch_turn(False)
+                log_err("AIPlayer.pick_square_for_attack returned None")
+                self._switch_turn()
                 return
 
             if self._monika.has_shot_at(coords):
-                log_err("AIPlayer.pick_cell_for_attack returned a square that Monika already shot in")
-                self._switch_turn(False)
+                log_err("AIPlayer.pick_square_for_attack returned a square that Monika already shot in")
+                self._switch_turn()
                 return
 
             quip = None#self._monika.pick_turn_start_quip(self, coords)
@@ -1173,54 +1222,52 @@ init -10 python in mas_battleship:
             else:
                 renpy.pause(0.05)
 
-            ship = self._player.grid.get_ship_at(coords)
+            self.register_shot(self._monika, self._player, coords)
+            self._switch_turn()
+            self._redraw_now()
+
+        def register_shot(self, player, target_player, square):
+            """
+            Registers a shot and checks for win cond
+
+            IN:
+                player - Player - the shooter
+                target_player - Player - the target player
+                square - tuple[int, int] - the square to shoot at
+
+            ASSUMES:
+                - the square is valid
+                - the player has the turn
+                - the game isn't over
+            """
+            ship = target_player.grid.get_ship_at(square)
             if ship is None:
-                self._monika.register_miss(coords)
+                player.register_miss(square)
 
             else:
-                self._monika.register_hit(coords)
+                player.register_hit(square)
                 ship.take_hit()
                 if not ship.is_alive():
-                    if self._player.has_lost_all_ships():
+                    player.on_enemy_ship_destroyed(ship)
+                    if target_player.has_lost_all_ships():
                         self.set_phase_done()
-                        self.mark_monika_won()
-
-            self._switch_turn()
+                        if self.is_monika_turn():
+                            self.mark_monika_won()
+                        else:
+                            self.mark_player_won()
 
         def game_loop(self):
             """
             Game loop, switches between Monika's and player handlers
             """
-            # while not self.is_done():
             if self.is_monika_turn() and self.is_in_action():
                 self.handle_monika_turn()
-            self._monika.strategy._update_heatmap(
-                self._player.grid,
-                self._monika._hits,
-                self._monika._misses,
-            )
-            # if self.is_player_turn() and self.is_in_action():
-            #     cell = self.test.pick_cell(self)
-            #     if cell is None:
-            #         log_err("test strategy returned None from pick_cell")
-            #         renpy.pause(0.1)
-            #         return
-            #     ship = self._monika.grid.get_ship_at(cell)
-            #     if ship is None:
-            #         self._player.register_miss(cell)
-            #     else:
-            #         self._player.register_hit(cell)
-            #         ship.take_hit()
-            #         if not ship.is_alive():
-            #             if self._monika.has_lost_all_ships():
-            #                 self.set_phase_done()
-            #                 self.mark_player_won()
-            #     self._switch_turn()
+            self._monika._update_heatmap(self._player.grid)
+
             if not self.is_done():
                 # NOTE: We don't check for player turn here to always start an interaction
                 # for stuff like mouse motion
                 ui.interact(type="minigame")
-                # renpy.pause(0.1)
 
         def visit(self):
             return [
@@ -1391,6 +1438,19 @@ init -10 python in mas_battleship:
 
             self._cell_states[coords] = value
 
+        def get_all_squares_with_ships(self):
+            """
+            Returns all squares that have ships
+
+            OUT:
+                list[tuple[int, int]]
+            """
+            rv = [] # type: list[tuple[int, int]]
+            for coords, state in self._cell_states.items():
+                if state == self.CellState.SHIP:
+                    rv.append(coords)
+            return rv
+
         def get_ship_at(self, coords):
             """
             Returns a ship at the given coordinates
@@ -1465,11 +1525,11 @@ init -10 python in mas_battleship:
             Tries to find a place for a ship
 
             IN:
-                ship - ship
+                ship - Ship - a ship to place
 
             OUT:
-                tuple with the coordinates for the bow of this ship,
-                or None if no free place found
+                tuple[int, int] | None - coordinates for the bow of this ship
+                    or None if no free space was found
             """
             ship_length = ship.length
             ship_orientation = ship.orientation
@@ -1497,7 +1557,7 @@ init -10 python in mas_battleship:
 
             for col in columns:
                 # List of tuples with coords
-                line = []
+                line = [] # list[tuple[int, int]]
                 for row in rows:
                     if should_swap_coords:
                         x = row
@@ -1595,7 +1655,7 @@ init -10 python in mas_battleship:
             NOTE: This does respect ship placement
 
             IN:
-                ships - list of Ship objects
+                ships - list[Ship] - ships to place
             """
             while True:
                 for ship in ships:
@@ -2035,6 +2095,16 @@ init -10 python in mas_battleship:
             """
             return iter(self._misses)
 
+        def on_enemy_ship_destroyed(self, ship):
+            """
+            Callback should be called when we destroyed a ship with one of the shots
+
+            IN:
+                ship - Ship - destroyed enemy ship
+            """
+            pass
+
+
     class _Quip(object):
         """
         A set of possible expressions and dialogue lines to pick from
@@ -2111,9 +2181,9 @@ init -10 python in mas_battleship:
 
             return quip.pick()
 
-    class AIPlayer(Player):
+    class BaseAIPlayer(Player):
         """
-        Steal and circuits battleship player
+        Base class for a steal and circuits battleship player
         """
 
         _LINES_TURN_START_COMMON_0 = (
@@ -2209,22 +2279,12 @@ init -10 python in mas_battleship:
         #     ),
         # )
 
-        def __init__(self, strategy):
+        def __init__(self):
             """
             Constructor for AI player
             """
-            super(AIPlayer, self).__init__()
-            self.strategy = strategy
+            super(BaseAIPlayer, self).__init__()
             self._turns_without_quip = 0
-
-        def pick_cell_for_attack(self, game):
-            """
-            AI plays turn
-
-            OUT:
-                tuple[int, int] - coordinates of the square to shoot
-            """
-            return self.strategy.pick_cell(game)
 
         def _pick_quip(self, quip, should_escape=False):
             """
@@ -2287,6 +2347,17 @@ init -10 python in mas_battleship:
                 return self._pick_quip(self.TURN_START_TEASE)
 
             return self._pick_quip(self.TURN_START_NORM)
+
+        def pick_square_for_attack(self, enemy):
+            """
+            AI picks a square for the next shot
+
+            enemy - Player - the other player
+
+            OUT:
+                tuple[int, int] - coordinates of the square to shoot
+            """
+            raise NotImplementedError()
 
 
     ### abc.ABC sucks in py2, so just imagine it's here
@@ -2640,17 +2711,15 @@ init -10 python in mas_battleship:
 
                     return cell
 
-    class ScholarStrategy(object):
+    class AIPlayer(BaseAIPlayer):
         """
-        Smart strategy that utilises probabilities rather than pure chance in finding ships and targeting them down
+        AI player that utilises probabilities in finding ships and targeting them down
 
         Credits to Nick Berry for the idea that become the core of this implementation
         """
-        def __init__(self, me, enemy):
-            self.me = me
-            self.enemy = enemy
-            self.heatmap = {}
-            self.render_heatmap = False
+        def __init__(self):
+            super(AIPlayer, self).__init__()
+            self.heatmap = {} # type: dict[tuple[int, int], int]
             self.dead_ships_spacing = set() # type: set[tuple[int, int]]
 
         @staticmethod
@@ -2676,14 +2745,14 @@ init -10 python in mas_battleship:
                     max_temp_coords.append(coords)
 
             if not max_temp_coords:
-                log_err("ScholarStrategy failed to find max temperature coordinates")
+                log_err("_get_max_temp failed to find max temperature coordinates")
 
             return (max_temp_coords, max_temp)
 
         def get_heatmap_colors(self):
             if not self.heatmap:
                 return {}
-            max_temp_coords, max_temp = self._get_max_temp()
+            _, max_temp = self._get_max_temp()
 
             color_map = {}
             for coords, temp in self.heatmap.items():
@@ -2695,7 +2764,7 @@ init -10 python in mas_battleship:
                 h = self._interpolate_num(0.0, 0.139, fraction**3)
                 # gets more bleak/white
                 s = self._interpolate_num(1.0, 0.0, fraction**10)
-                # black > color per hue
+                # black > color as per hue
                 v = self._interpolate_num(0.0, 1.0, store._warper.easein_quint(fraction))
                 color = store.Color(hsv=(h, s, v))
 
@@ -2703,15 +2772,13 @@ init -10 python in mas_battleship:
 
             return color_map
 
-        def _update_heatmap(self, enemy_grid, hits, misses):
+        def _update_heatmap(self, enemy_grid):
             """
             Analyzes enemy grid using dealt hits and misses, and refills the heatmap
             NOTE: This is a heavy function, mind when you call it
 
             IN:
                 enemy_grid - Grid - the grid of another player
-                hits - set[tuple[int, int]] - set of coordinates of successful hits
-                misses - set[tuple[int, int]] - set of coordinates of our misses
             """
             ### START: internal utility functions
             def increment_temp(heatmap, xi, yi, amount):
@@ -2727,7 +2794,7 @@ init -10 python in mas_battleship:
                 for coords in zip(xi, yi):
                     if coords not in heatmap:
                         heatmap[coords] = 0
-                    if coords not in hits:
+                    if coords not in self._hits:
                         heatmap[coords] += amount
 
             def is_ship_alive_at(grid, square):
@@ -2764,11 +2831,11 @@ init -10 python in mas_battleship:
                 neighbours = []
                 if y > 0:
                     n = (x, y-1)
-                    if n in hits and is_ship_alive_at(grid, n):
+                    if n in self._hits and is_ship_alive_at(grid, n):
                         neighbours.append(n)
                 if y + 1 < enemy_grid.HEIGHT:
                     n = (x, y+1)
-                    if n in hits and is_ship_alive_at(grid, n):
+                    if n in self._hits and is_ship_alive_at(grid, n):
                         neighbours.append(n)
                 return neighbours
 
@@ -2789,11 +2856,11 @@ init -10 python in mas_battleship:
                 neighbours = []
                 if x + 1 < enemy_grid.WIDTH:
                     n = (x+1, y)
-                    if n in hits and is_ship_alive_at(grid, n):
+                    if n in self._hits and is_ship_alive_at(grid, n):
                         neighbours.append(n)
                 if x > 0:
                     n = (x-1, y)
-                    if n in hits and is_ship_alive_at(grid, n):
+                    if n in self._hits and is_ship_alive_at(grid, n):
                         neighbours.append(n)
                 return neighbours
 
@@ -2816,7 +2883,7 @@ init -10 python in mas_battleship:
                 bonus_temp = 0
                 for coords in zip(xi, yi):
                     # Empty square
-                    if coords in misses:
+                    if coords in self._misses:
                         return 0
 
                     # Known ship spacing
@@ -2824,7 +2891,7 @@ init -10 python in mas_battleship:
                         return 0
 
                     # If we previously hit a ship at this location, we want to finish it
-                    if coords in hits:
+                    if coords in self._hits:
                         if not is_ship_alive_at(grid, coords):
                             return 0
 
@@ -2836,16 +2903,16 @@ init -10 python in mas_battleship:
                         ):
                             # We have cells up/down for vertical ship or right/left for horizontal ship
                             # So we want to focus vertically/horizontally
-                            bonus_temp += 15
+                            bonus_temp += 100
                         elif not vneighbours and not hneighbours:
                             # We don't have any adjacent hits, so we focus around the last hit forming + pattern
-                            bonus_temp += 10
+                            bonus_temp += 100
                         else:
                             # The ship is vertical, but hits are to left/right
                             # or the ship is horizontal, but hits are above/below
                             # not much reason to shoot this position, but it's worth more than unknown cells at all?
                             # just a theory, maybe I'm wrong and we should return 1 or even 0 due to spacing around ships
-                            bonus_temp += 0#5
+                            bonus_temp += 75
 
                 # Unexplored cell where a ship can be have 1 by default
                 return 1 + bonus_temp
@@ -2853,45 +2920,37 @@ init -10 python in mas_battleship:
             ### END: internal utility functions
             self.heatmap.clear()
 
-            # analyzed_lengths = set()
+            heatmap_sum = 0
+            # TODO: Is there any point of analysing every ship?
+            # Can't we skip the ships whose length we already handled? They don't seem to
+            # add any meaningful data
             for ship in enemy_grid.iter_ships():
                 # Only count active ships
                 if not ship.is_alive():
                     continue
-                # Don't analyze the ships of the same length, they'd be placed in the same way
                 ship_length = ship.length
-                # if ship_length in analyzed_lengths:
-                #     continue
-                # analyzed_lengths.add(ship_length)
 
                 for row in range(enemy_grid.HEIGHT):
                     for col in range(enemy_grid.WIDTH):
                         cell = (col, row)
                         if cell not in self.heatmap:
                             self.heatmap[cell] = 0
-                        if cell in misses:
+                        if cell in self._misses:
                             continue
-                        if cell in hits and not is_ship_alive_at(enemy_grid, cell):
+                        if cell in self._hits and not is_ship_alive_at(enemy_grid, cell):
                             continue
                         if cell in self.dead_ships_spacing:
                             continue
 
-                        # if row - ship_length + 1 >= 0:
-                        #     xi_for_validation, xi = itertools.tee(itertools.repeat(col, ship_length), 2)
-                        #     yi_for_validation, yi = itertools.tee(range(row, row-ship_length, -1), 2)
-                        #     amount = get_temp_increment(xi_for_validation, yi_for_validation, is_vertical=True)
-                        #     if amount:
-                        #         increment_temp(xi, yi, amount)
-
                         # We only check right and down orientations since left and up would be just the same,
                         # no reason to do extra work
-
                         if col + ship_length - 1 < enemy_grid.WIDTH:
                             xi_for_validation, xi = itertools.tee(range(col, col + ship_length), 2)
                             yi_for_validation, yi = itertools.tee(itertools.repeat(row, ship_length), 2)
                             amount = get_temp_increment(xi_for_validation, yi_for_validation, enemy_grid, is_vertical=False)
                             if amount:
                                 increment_temp(self.heatmap, xi, yi, amount)
+                                heatmap_sum += amount * ship_length
 
                         if row + ship_length - 1 < enemy_grid.HEIGHT:
                             xi_for_validation, xi = itertools.tee(itertools.repeat(col, ship_length), 2)
@@ -2899,39 +2958,51 @@ init -10 python in mas_battleship:
                             amount = get_temp_increment(xi_for_validation, yi_for_validation, enemy_grid, is_vertical=True)
                             if amount:
                                 increment_temp(self.heatmap, xi, yi, amount)
+                                heatmap_sum += amount * ship_length
 
-                        # if col - ship_length + 1 >= 0:
-                        #     xi_for_validation, xi = itertools.tee(range(col, col-ship_length, -1), 2)
-                        #     yi_for_validation, yi = itertools.tee(itertools.repeat(row, ship_length), 2)
-                        #     amount = get_temp_increment(xi_for_validation, yi_for_validation, is_vertical=False)
-                        #     if amount:
-                        #         increment_temp(xi, yi, amount)
-
-            # In case all ships are dead, use 0'd heatmap
             if not self.heatmap:
+                # In case all ships are dead, use 0'd heatmap
                 self.heatmap = {
                     (col, row): 0
                     for row in range(Grid.HEIGHT)
                     for col in range(Grid.WIDTH)
                 }
+            elif heatmap_sum:
+                # High weight means we rely more on where player puts their ships
+                # and rely less on the current state of the board (skip misses/hits/where a ship truly fits)
+                weight = 0.5
+                # Otherwise enchance heatmap with the dataset we collected
+                dataset_sum = sum(persistent._mas_game_battleship_player_ship_heatmap.values())
+                if dataset_sum:
+                    for coords, temp in self.heatmap.items():
+                        if not temp:
+                            # 0 temp means we don't want to fire here at all
+                            continue
+                        # Normalise
+                        temp = float(temp) / heatmap_sum
+                        # Apply probabilities from the dataset
+                        dataset_temp = float(persistent._mas_game_battleship_player_ship_heatmap[coords]) / dataset_sum
+                        self.heatmap[coords] = (temp*(1.0 - weight) + dataset_temp*weight) * 100
 
-        def pick_cell(self, game):
-            self._update_heatmap(
-                self.enemy.grid,
-                self.me._hits,
-                self.me._misses,
-            )
+        def on_enemy_ship_destroyed(self, ship):
+            """
+            Callback should be called when we destroyed a ship with one of the shots
+
+            IN:
+                ship - Ship - destroyed enemy ship
+            """
+            _, spacing_cells = ship.get_cells()
+            for cell in spacing_cells:
+                self.dead_ships_spacing.add(cell)
+
+        def pick_square_for_attack(self, enemy):
+            self._update_heatmap(enemy.grid)
 
             max_temp_coords, _ = self._get_max_temp()
             if len(max_temp_coords) > 1:
+                # TODO select using checkerboard
                 coords = random.choice(max_temp_coords)
             else:
                 coords = max_temp_coords[0]
-
-            ship = self.enemy.grid.get_ship_at(coords)
-            if ship is not None and ship._health == 1:
-                _, spacing_cells = ship.get_cells()
-                for cell in spacing_cells:
-                    self.dead_ships_spacing.add(cell)
 
             return coords
