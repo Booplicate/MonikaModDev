@@ -1837,6 +1837,7 @@ init -10 python in mas_battleship:
             angle %= 360
             # Sanity check
             if angle == 0 or angle % 90 != 0:
+                log_err("Ship.rotate got invalid angle param: {}".format(angle))
                 return
 
             self._rotate_bow(angle, origin_point)
