@@ -1532,42 +1532,19 @@ init -10 python in mas_battleship:
                     or None if no free space was found
             """
             ship_length = ship.length
-            ship_orientation = ship.orientation
             # List with all free lines where we could place this ship on
-            available_positions = []
+            available_lines = [] # type: list[list[tuple[int, int]]]
+            # Spawn columns with rows for horizontal lines
+            should_mirror_coords = Ship.Orientation.is_horizontal(ship.orientation)
 
-            should_swap_coords = False
-            if ship_orientation == Ship.Orientation.UP:
-                columns = range(self.WIDTH)
-                rows = range(self.HEIGHT)
-
-            elif ship_orientation == Ship.Orientation.RIGHT:
-                columns = range(self.WIDTH)
-                rows = range(self.HEIGHT, 0, -1)
-                should_swap_coords = True
-
-            elif ship_orientation == Ship.Orientation.DOWN:
-                columns = range(self.WIDTH)
-                rows = range(self.HEIGHT, 0, -1)
-
-            else:
-                columns = range(self.WIDTH)
-                rows = range(self.HEIGHT)
-                should_swap_coords = True
-
-            for col in columns:
-                # List of tuples with coords
-                line = [] # list[tuple[int, int]]
-                for row in rows:
-                    if should_swap_coords:
-                        x = row
-                        y = col
-
+            for column in range(self.WIDTH):
+                # A potential line where the ship would fit
+                line = [] # type: list[tuple[int, int]]
+                for row in range(self.HEIGHT):
+                    if should_mirror_coords:
+                        square = (row, column)
                     else:
-                        x = col
-                        y = row
-
-                    square = (x, y)
+                        square = (column, row)
 
                     # If this square is free, add it to the line
                     if self.is_empty_at(square):
@@ -1577,23 +1554,29 @@ init -10 python in mas_battleship:
                     else:
                         # See if we can fit our ship in this line
                         if len(line) >= ship_length:
-                            available_positions.append(line)
+                            available_lines.append(line)
                         # Reset the list before continuing iterating
                         line = []
 
-                # Reached the end of this col, append this line if it fits
+                # Reached the end of this column, check if the ship would fit the line
                 if len(line) >= ship_length:
-                    available_positions.append(line)
+                    available_lines.append(line)
 
             # Return None if we couldn't find a place for this ship
-            if not available_positions:
+            if not available_lines:
                 return None
 
-            # Now choose the one that we'll use
-            line = random.choice(available_positions)
-            coords = line[random.randint(0, len(line) - ship_length)]
+            # Choose the one that we'll use
+            # TODO: use weighted choice
+            line = random.choice(available_lines)
+            # Pick where ship will start at the line (in case the line is longer than the ship)
+            # TODO: use weighted choice
+            offset = random.randint(0, len(line) - ship_length)
+            # Mirror the offset if needed
+            if ship.orientation in (Ship.Orientation.DOWN, Ship.Orientation.RIGHT):
+                offset += ship_length - 1
 
-            return coords
+            return line[offset]
 
         def place_ship(self, ship, add_to_map=True):
             """
@@ -1650,15 +1633,18 @@ init -10 python in mas_battleship:
 
         def place_ships(self, ships):
             """
-            Places ships on this grid at random position
+            Places ships on this grid at random positions and orientation
 
             NOTE: This does respect ship placement
 
             IN:
                 ships - list[Ship] - ships to place
             """
+            orientations = Ship.Orientation.get_all()
+
             while True:
                 for ship in ships:
+                    ship.orientation = random.choice(orientations)
                     coords = self.find_place_for_ship(ship)
 
                     # If we got appropriate coords, place the ship
@@ -1668,13 +1654,7 @@ init -10 python in mas_battleship:
 
                     # Otherwise try another orientation
                     else:
-                        if Ship.Orientation.is_vertical(ship.orientation):
-                            rest_orientations = (Ship.Orientation.RIGHT, Ship.Orientation.LEFT)
-
-                        else:
-                            rest_orientations = (Ship.Orientation.UP, Ship.Orientation.DOWN)
-
-                        ship.orientation = random.choice(rest_orientations)
+                        ship.rotate_around_bow(90)
                         coords = self.find_place_for_ship(ship)
 
                         # Try with the new coords
@@ -1718,23 +1698,21 @@ init -10 python in mas_battleship:
             def is_horizontal(cls, value):
                 return value in (cls.RIGHT, cls.LEFT)
 
-        def __init__(self, bow_coords, type_, length, orientation):
+        def __init__(self, type_, length):
             """
             Constructor for new ship
 
             IN:
-                bow_coords - tuple[int, int] - coordinates for the ship bow
                 type_ - int - ship type
                 length - int - ship length
-                orientation - Ship.Orientation - ship direction
             """
-            self.bow_coords = bow_coords
+            self.bow_coords = (0, 0)
             self._type = type_
             self._length = length
-            self._orientation = orientation
+            self._orientation = self.Orientation.UP
 
             self._health = length
-            self.drag_coords = bow_coords
+            self.drag_coords = (0, 0)
 
         def __repr__(self):
             return "<{0}: (at: {1}, type: {2}, len: {3}, hp: {4})>".format(
@@ -1826,7 +1804,7 @@ init -10 python in mas_battleship:
                 is_positive=is_positive,
             )
 
-        def _rotate(self, angle, origin_point):
+        def _rotate_bow(self, angle, origin_point):
             """
             Rotates this ship's bow around the given origin
             NOTE: this doesn't update the orientation and drag_point props, assuming these'll be set afterwards
@@ -1849,7 +1827,7 @@ init -10 python in mas_battleship:
 
         def rotate(self, angle, origin_point):
             """
-            Public method for rotating this ship
+            Rotates this ship around a point
 
             IN:
                 angle - int - angle to rotate by
@@ -1861,9 +1839,19 @@ init -10 python in mas_battleship:
             if angle == 0 or angle % 90 != 0:
                 return
 
-            self._rotate(angle, origin_point)
+            self._rotate_bow(angle, origin_point)
             self._orientation += angle
             self._orientation %= 360
+
+        def rotate_around_bow(self, angle):
+            """
+            Rotates this ship around its bow
+
+            IN:
+                angle - int - angle to rotate by
+                    NOTE: in degrees
+            """
+            self.rotate(angle, self.bow_coords)
 
         def get_drag_offset_from_bow(self):
             """
@@ -1947,30 +1935,15 @@ init -10 python in mas_battleship:
             Returns a copy of this ship
 
             OUT:
-                new Ship objects with the same params as this one
+                Ship - new ship with the same params as this one
             """
-            ship = Ship(self.bow_coords, self.type, self.length, self.orientation)
-
+            ship = Ship(self.type, self.length)
+            ship.bow_coords = self.bow_coords
+            ship.orientation = self.orientation
             ship._health = self._health
             ship.drag_coords = self.drag_coords
 
             return ship
-
-        @classmethod
-        def build_ship(cls, type_):
-            """
-            Builds a ship with random orientation at (0, 0)
-
-            IN:
-                type_ - int - ship type
-
-            OUT:
-                Ship object
-            """
-            length = SHIP_TYPE_TO_LENGTH[type_]
-            orientation = random.choice(cls.Orientation.get_all())
-
-            return cls((0, 0), type_, length, orientation)
 
         @classmethod
         def build_ships(cls, ship_preset):
@@ -1978,12 +1951,15 @@ init -10 python in mas_battleship:
             Builds multiple ships using the given set
 
             IN:
-                ship_preset - list of ship types
+                ship_preset - list[ShipType] - list of ship types to build
 
             OUT:
-                list of Ship objects
+                list[Ship] - built ships
             """
-            return [cls.build_ship(ship_type) for ship_type in ship_preset]
+            return [
+                cls(ship_type, SHIP_TYPE_TO_LENGTH[ship_type])
+                for ship_type in ship_preset
+            ]
 
 
     class Player(object):
@@ -2358,358 +2334,6 @@ init -10 python in mas_battleship:
                 tuple[int, int] - coordinates of the square to shoot
             """
             raise NotImplementedError()
-
-
-    ### abc.ABC sucks in py2, so just imagine it's here
-    ### TODO: in r8 use abc or better Protocol for the interface
-
-    class RandomStrategy(object):
-        """
-        AI will pick random cells to shoot at
-        """
-        def __init__(self):
-            self.targets = {
-                (col, row)
-                for row in range(Grid.HEIGHT)
-                for col in range(Grid.WIDTH)
-            }
-
-        def mark_cell_used(self, cell):
-            self.targets.discard(cell)
-
-        def pick_cell(self, game):
-            if not self.targets:
-                log_err(
-                    "RandomStrategy.pick_cell was called, but has no more target squares available, the game should've ended by now",
-                )
-                return None
-
-            cell = random.choice(tuple(self.targets))
-            self.mark_cell_used(cell)
-            return cell
-
-    class CheckerboardStrategy(object):
-        """
-        AI will pick every other cells to shoot at forming a checkerboard pattern
-        """
-        def __init__(self):
-            self.white_targets = set()
-            self.black_targets = set()
-
-            is_white = True
-            for row in range(Grid.HEIGHT):
-                for col in range(Grid.WIDTH):
-                    if is_white:
-                        self.white_targets.add((col, row))
-                    else:
-                        self.black_targets.add((col, row))
-                    is_white = not is_white
-                is_white = not is_white
-
-            # Swap sets to make the game look more random
-            if random.random() < 0.5:
-                self.white_targets, self.black_targets = self.black_targets, self.white_targets
-
-        @property
-        def targets(self):
-            if self.white_targets:
-                return self.white_targets
-            return self.black_targets
-
-        def mark_cell_used(self, cell):
-            self.white_targets.discard(cell)
-            self.black_targets.discard(cell)
-
-        def pick_cell(self, game):
-            targets = self.targets
-
-            if not targets:
-                log_err(
-                    "CheckerboardStrategy.pick_cell was called, but has no more target squares available, the game should've ended by now",
-                )
-                return None
-
-            cell = random.choice(tuple(targets))
-            self.mark_cell_used(cell)
-            return cell
-
-    class HunterStrategy(object):
-        """
-        Adaptive strategy focusing on effectivly finding ships and targeting them down
-        FIXME: rare crash with
-                Battleship: HunterStrategy._pick_search_coords was called with all search_coords_* empty or None, this is a bug
-                Battleship: HunterStrategy.current_search_coords is empty after using _set_potential_search_coords and _pick_search_coords, this is a bug
-        """
-        def __init__(self, me, enemy):
-            self.me = me
-            self.enemy = enemy
-            self.helper_strat = CheckerboardStrategy()
-            # The cell where we first found current target
-            self.found_ship_at = None
-            # Coordinates for next potential ship cells from the found_ship_at
-            self.search_coords_up = None
-            self.search_coords_right = None
-            self.search_coords_down = None
-            self.search_coords_left = None
-            # Gets set to one of the above when we're shooting using its coords
-            # This way we can continue shooting in one direction until we either kill, or miss
-            self.current_search_coords = None
-            # We don't want to shoot here
-            self.cells_blacklist = set()
-
-        def _get_min_max_ship_len(self, enemy):
-            """
-            Returns minimum and maximum lengths of the player ships that are still alive
-
-            OUT:
-                tuple[int, int]
-            """
-            min_ = Grid.HEIGHT * Grid.WIDTH # Just any value bigger than possible ship length
-            max_ = -1
-            for ship in enemy.iter_ships():
-                if ship.is_alive():
-                    min_ = min(ship.length, min_)
-                    max_ = max(ship.length, max_)
-
-            return (min_, max_)
-
-        def _is_valid_target_cell(self, coords, enemy_grid):
-            """
-            Checks if the given cell is valid for targeting
-
-            IN:
-                coords - tuple[int, int] - coordinates of the cell
-                enemy_grid - Grid - enemy ships grid
-
-            OUT:
-                bool
-            """
-            return enemy_grid.is_within(coords) and coords not in self.cells_blacklist
-
-        def _reset_target(self):
-            self.found_ship_at = None
-            self.search_coords_up = []
-            self.search_coords_right = []
-            self.search_coords_down = []
-            self.search_coords_left = []
-            self.current_search_coords = None
-
-        def _prune_search_coords(self, min_ship_len):
-            """
-            Ensures that a ship can fit in one of the directions
-
-            IN:
-                min_ship_len - int - min length of enemy ships
-            """
-            # Check we can fit at least the smallest ship horizontally or vertically
-            # Using elif because at least one of orientations has to be valid
-            if len(self.search_coords_up) + len(self.search_coords_down) + 1 < min_ship_len:
-                log_err("pruned vertical search coords")
-                self.search_coords_up[:] = []
-                self.search_coords_down[:] = []
-
-            elif len(self.search_coords_right) + len(self.search_coords_left) + 1 < min_ship_len:
-                log_err("pruned horizontal search coords")
-                self.search_coords_right[:] = []
-                self.search_coords_left[:] = []
-
-        def _set_potential_search_coords(self, target_at, min_ship_len, max_ship_len, enemy_grid):
-            """
-            Analyses and chooses appropriate cells where the ship might be, the cells are split between 4 lists,
-            each list contains cells for a direction from the point where the ship was found
-
-            IN:
-                target_at - tuple[int, int] - coordinates where we first found a ship
-                min_ship_len - int - min length of enemy ships
-                max_ship_len - int - max length of enemy ships
-                enemy_grid - Grid - enemy ships grid
-            """
-            base_x, base_y = target_at
-
-            # Get the cells to shoot next
-            # TODO: in r8 instead return a namedtuple, I don't like to mutate state from within the methods
-            self.search_coords_up = []
-            self.search_coords_right = []
-            self.search_coords_down = []
-            self.search_coords_left = []
-            log_err("searching from {}".format(target_at))
-            for y in range(base_y - 1, base_y - max_ship_len, -1):
-                if not self._is_valid_target_cell((base_x, y), enemy_grid):
-                    # No reason to go further, we know the ship ends before this cell
-                    log_err("cant search {} and up".format((base_x, y)))
-                    break
-                self.search_coords_up.append((base_x, y))
-            for x in range(base_x + 1, base_x + max_ship_len):
-                if not self._is_valid_target_cell((x, base_y), enemy_grid):
-                    log_err("cant search {} and right".format((x, base_y)))
-                    break
-                self.search_coords_right.append((x, base_y))
-            for y in range(base_y + 1, base_y + max_ship_len):
-                if not self._is_valid_target_cell((base_x, y), enemy_grid):
-                    log_err("cant search {} and down".format((base_x, y)))
-                    break
-                self.search_coords_down.append((base_x, y))
-            for x in range(base_x - 1, base_x - max_ship_len, -1):
-                if not self._is_valid_target_cell((x, base_y), enemy_grid):
-                    log_err("cant search {} and left".format((x, base_y)))
-                    break
-                self.search_coords_left.append((x, base_y))
-
-            self._prune_search_coords(min_ship_len)
-
-        def _pick_search_coords(self):
-            """
-            Picks 1-4 directions for next shots in attempt to finish off the found ship
-
-            ASSUMES:
-                At least one of up/right/down/left was set
-
-            OUT:
-                list[tuple[int, int]]
-            """
-            directions = []
-            if self.search_coords_up:
-                directions.append(self.search_coords_up)
-            if self.search_coords_right:
-                directions.append(self.search_coords_right)
-            if self.search_coords_down:
-                directions.append(self.search_coords_down)
-            if self.search_coords_left:
-                directions.append(self.search_coords_left)
-
-            if directions:
-                return random.choice(directions)
-
-            # Should never happen, but just in case to avoid an exception
-            log_err(
-                "HunterStrategy._pick_search_coords was called with all search_coords_* empty or None, this is a bug",
-            )
-            return []
-
-        def _is_good_target_at(self, coords, min_ship_len, max_ship_len, enemy_grid):
-            """
-            Analyses whether a ship might be at the given coords
-            NOTE: this is an optimised version of _set_potential_search_coords plus _prune_search_coords functions
-                with focusing on analysing one cell instead of generating list of coordinates to target next
-
-            IN:
-                coords - tuple[int, int] - coordinates to shoot at
-                min_ship_len - int - min length of enemy ships
-                max_ship_len - int - max length of enemy ships
-                enemy_grid - Grid - enemy ships grid
-
-            OUT:
-                bool
-            """
-            base_x, base_y = coords
-
-            total_cells_up = 0
-            total_cells_right = 0
-            total_cells_down = 0
-            total_cells_left = 0
-            for y in range(base_y - 1, base_y - max_ship_len, -1):
-                if not self._is_valid_target_cell((base_x, y), enemy_grid):
-                    # No reason to go further, we know the ship ends before this cell
-                    break
-                total_cells_up += 1
-            for x in range(base_x + 1, base_x + max_ship_len):
-                if not self._is_valid_target_cell((x, base_y), enemy_grid):
-                    break
-                total_cells_right += 1
-            for y in range(base_y + 1, base_y + max_ship_len):
-                if not self._is_valid_target_cell((base_x, y), enemy_grid):
-                    break
-                total_cells_down += 1
-            for x in range(base_x - 1, base_x - max_ship_len, -1):
-                if not self._is_valid_target_cell((x, base_y), enemy_grid):
-                    break
-                total_cells_left += 1
-
-            return (total_cells_up + total_cells_down + 1 >= min_ship_len) or (total_cells_right + total_cells_left + 1 >= min_ship_len)
-
-        def mark_cell_used(self, cell):
-            self.cells_blacklist.add(cell)
-            self.helper_strat.mark_cell_used(cell)
-
-        def pick_cell(self, game):
-            min_ship_len, max_ship_len = self._get_min_max_ship_len(self.enemy)
-
-            if self.found_ship_at is not None:
-                ship = self.enemy.grid.get_ship_at(self.found_ship_at)
-                # Shouldn't be none, but just in case
-                if ship is not None:
-                    if ship.is_alive():
-                        if not self.current_search_coords:
-                            # We either didn't set up the potential directions yet, or we need to pick a new one
-                            if not self.search_coords_up and not self.search_coords_right and not self.search_coords_down and not self.search_coords_left:
-                                self._set_potential_search_coords(
-                                    self.found_ship_at,
-                                    min_ship_len,
-                                    max_ship_len,
-                                    self.enemy.grid,
-                                )
-                            self.current_search_coords = self._pick_search_coords()
-
-                        # Sanity check
-                        if not self.current_search_coords:
-                            log_err(
-                                "HunterStrategy.current_search_coords is empty after using _set_potential_search_coords and _pick_search_coords, this is a bug",
-                            )
-                            return None
-
-                        # We have a direction we want to SEARCH and DESTROY
-                        cell = self.current_search_coords.pop(0)
-                        if self.enemy.grid.is_ship_at(cell):
-                            # We hit, which means we know ship's orientation now
-                            if self.current_search_coords is self.search_coords_up or self.current_search_coords is self.search_coords_down:
-                                self.search_coords_left[:] = []
-                                self.search_coords_right[:] = []
-                            else:
-                                self.search_coords_up[:] = []
-                                self.search_coords_down[:] = []
-
-                        else:
-                            # We hit water, we should stop searching here and pick new coords
-                            # NOTE: Important, this also changes the original list in up/right/down/left
-                            # Kind of hacky working with references, eh?
-                            self.current_search_coords[:] = []
-                            self._prune_search_coords(min_ship_len)
-                            self.current_search_coords = self._pick_search_coords()
-
-                        # BUG: this might cause an issue when we won't be able to shoot past this cell later on even if there lies the rest of the ship, flow:
-                        # 1. ssss
-                        # 2. sxss
-                        # 3. sxxs
-                        # 4. sxxx
-                        # 5. sxxxo
-                        # 6. and we're stuck
-                        self.mark_cell_used(cell)
-                        return cell
-
-                    # If we destroyed this ship in previous turn, we need to find a new target and mark the cells
-                    else:
-                        for cell_list in ship.get_cells():
-                            for cell in cell_list:
-                                self.mark_cell_used(cell)
-
-                self._reset_target()
-
-            # No target or it was destroyed, let's find the next target
-            while True:
-                cell = self.helper_strat.pick_cell(game)
-                if cell is None:
-                    # Shouldn't happen
-                    log_err("HunterStrategy.helper_strat.pick_cell returned None, possible inf loop")
-                    return None
-
-                self.mark_cell_used(cell)
-
-                if self._is_good_target_at(cell, min_ship_len, max_ship_len, self.enemy.grid):
-                    # If we found a ship, set it as a target for next turns
-                    if self.enemy.grid.is_ship_at(cell):
-                        self.found_ship_at = cell
-
-                    return cell
 
     class AIPlayer(BaseAIPlayer):
         """
