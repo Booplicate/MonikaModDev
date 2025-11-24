@@ -12,8 +12,7 @@ default persistent._mas_game_battleship_player_ship_heatmap = {
     for row in range(store.mas_battleship.Grid.HEIGHT)
     for col in range(store.mas_battleship.Grid.WIDTH)
 }
-# for i in range(10):
-#     persistent._mas_game_battleship_player_ship_heatmap[(0, i)] += 20
+
 
 init 5 python:
     addEvent(
@@ -59,7 +58,86 @@ label mas_battleship_show_player_heatmap:
     $ del show_raw, tmp_game
     return
 
+
+init 5 python:
+    addEvent(
+        Event(
+            persistent.event_database,
+            eventlabel="mas_battleship_show_rng_placement_heatmap",
+            category=["dev"],
+            prompt="SHOW RANDOM SHIP PLACEMENT HEATMAP",
+            rules={"keep_idle_exp": None},
+            pool=True,
+            unlocked=True,
+        )
+    )
+label mas_battleship_show_rng_placement_heatmap:
+    $ iterations = store.mas_utils.tryparseint(
+            renpy.input(
+                "How many iterations would you like to run? Default 10000.",
+                allow=numbers_only,
+                length=5,
+            ).strip("\t\n\r"),
+            10000,
+        )
+
+    $ use_player_data = False
+    m 3eua "Should I use player data to influence the placement?{nw}"
+    $ _history_list.pop()
+    menu:
+        m "Should I use player data to influence the placement?{fast}"
+
+        "Yes.":
+            $ use_player_data = True
+
+        "No, just random.":
+            pass
+
+    m 1dsa "The game may hang, bear with me...{nw}"
+
+    python:
+        tmp_game = mas_battleship.Battleship()
+        counter = {}
+
+        for _unused in range(iterations):
+            tmp_game.build_and_place_player_ships(use_player_data)
+
+            for coords in tmp_game._player.grid.get_all_squares_with_ships():
+                if coords not in counter:
+                    counter[coords] = 0
+                counter[coords] += 1
+
+        total = sum(counter.values())
+        tmp_game._monika.heatmap = {
+            k: round(float(v) / total * 100, 2)
+            for k, v in counter.items()
+        }
+        # tmp_game._monika.heatmap = counter
+        tmp_game._render_monika_heatmap = True
+
+    show monika 1eua at t31
+    show screen mas_battleship_ui(tmp_game)
+    m ""
+    hide screen mas_battleship_ui
+    show monika at t11
+
+    m 3eua "Repeat?{nw}"
+    $ _history_list.pop()
+    menu:
+        m "Repeat?{fast}"
+
+        "Yes.":
+            jump mas_battleship_show_rng_placement_heatmap
+
+        "No.":
+            pass
+
+    $ del iterations, use_player_data, tmp_game, counter, total
+    return
+
+
 init 999 python:
+    # TODO: rm this
     mas_enable_quit()
 
 screen mas_battleship_ui(game):
@@ -283,6 +361,8 @@ label mas_battleship_game_end:
             m 1hua "Ehehe~"
 
     elif mas_battleship.game.did_player_giveup():
+        $ mas_battleship.increment_monika_wins()
+
         if mas_battleship.game.get_turn_count() == 0:
             m 2etc "But we didn't even get started."
             m 7eka "In any case, if you change your mind again, let me know."
@@ -384,7 +464,10 @@ init -10 python in mas_battleship:
         Image,
         Transform,
     )
-    from store.mas_utils import mas_log
+    from store.mas_utils import (
+        mas_log,
+        weightedChoice,
+    )
 
     # The game object, will be set on game start
     game = None
@@ -440,6 +523,12 @@ init -10 python in mas_battleship:
     def get_total_games():
         return get_monika_wins() + get_player_wins()
 
+    def get_player_winrate():
+        total_games = get_total_games()
+        if total_games == 0:
+            return 0.0
+        return round(float(get_player_wins()) / total_games, 3)
+
     def collect_player_data(game):
         for coords in game._player.grid.get_all_squares_with_ships():
             persistent._mas_game_battleship_player_ship_heatmap[coords] += 1
@@ -463,7 +552,7 @@ init -10 python in mas_battleship:
         MAIN_GRID_ORIGIN_X = 0
         MAIN_GRID_ORIGIN_Y = 0
         MAIN_GRID_ORIGIN = (MAIN_GRID_ORIGIN_X, MAIN_GRID_ORIGIN_Y)
-        TRACKING_GRID_ORIGIN_X = GRID_WIDTH + GRID_SPACING
+        TRACKING_GRID_ORIGIN_X = MAIN_GRID_ORIGIN_X + GRID_WIDTH + GRID_SPACING
         TRACKING_GRID_ORIGIN_Y = MAIN_GRID_ORIGIN_Y
         TRACKING_GRID_ORIGIN = (TRACKING_GRID_ORIGIN_X, TRACKING_GRID_ORIGIN_Y)
 
@@ -793,12 +882,16 @@ init -10 python in mas_battleship:
             self.is_sensitive = previous_is_sensitive
 
 
-        def build_and_place_player_ships(self):
+        def build_and_place_player_ships(self, should_use_dataset=False):
             """
             Builds and places ships for the player
 
             NOTE: returning a non-None value is important, this way we end the interaction
             from the screen action
+
+            IN:
+                should_use_dataset - bool - whether we use player ship dataset to place ships
+                    Default: False
 
             OUT:
                 bool - success or not
@@ -807,7 +900,11 @@ init -10 python in mas_battleship:
                 return False
 
             self._player.grid.clear()
-            self._player.grid.place_ships(Ship.build_ships(self.SHIP_PRESET_CLASSIC))
+            if should_use_dataset:
+                weights = persistent._mas_game_battleship_player_ship_heatmap
+            else:
+                weights = None
+            self._player.grid.place_ships(Ship.build_ships(self.SHIP_PRESET_CLASSIC), weights=weights)
             self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
             return True
@@ -1180,6 +1277,7 @@ init -10 python in mas_battleship:
 
             if ev.type == pygame.KEYDOWN and ev.key == pygame.K_h:
                 self._render_monika_heatmap ^= True
+                raise renpy.IgnoreEvent()
 
             # When disabled we only process mouse motions
             if not self.is_sensitive and ev.type != pygame.MOUSEMOTION:
@@ -1520,25 +1618,46 @@ init -10 python in mas_battleship:
 
             self.update()
 
-        def find_place_for_ship(self, ship):
+        def find_place_for_ship(self, ship, weights=None):
             """
             Tries to find a place for a ship
 
             IN:
                 ship - Ship - a ship to place
+                weights - dict[tuple[int, int], float] | None - weights for each square of the grid,
+                    this makes it possible to make some square more or les desirable for placement
 
             OUT:
                 tuple[int, int] | None - coordinates for the bow of this ship
                     or None if no free space was found
             """
             ship_length = ship.length
-            # List with all free lines where we could place this ship on
-            available_lines = [] # type: list[list[tuple[int, int]]]
-            # Spawn columns with rows for horizontal lines
+            # List with all free lines where we could place this ship on and their weights
+            available_lines_and_weights = [] # type: list[ tuple[ list[tuple[int, int]], float ] ]
+            # Swap columns with rows for horizontal lines
             should_mirror_coords = Ship.Orientation.is_horizontal(ship.orientation)
+
+            def add_line(line):
+                """
+                Calculates weight for the given line and adds that data to the list of all lines
+
+                IN:
+                    line - list[tuple[int, int]]
+
+                ASSUMES:
+                    available_lines_and_weights
+                    weights
+                """
+                line_weight = 1.0
+                if weights is not None:
+                    for square in line:
+                        line_weight += weights[square]
+                available_lines_and_weights.append((line, line_weight))
 
             for column in range(self.WIDTH):
                 # A potential line where the ship would fit
+                # TODO: I don't think we actually have to store every point on the line,
+                # it's enough to know just start/end and maybe length, could be an optimisation
                 line = [] # type: list[tuple[int, int]]
                 for row in range(self.HEIGHT):
                     if should_mirror_coords:
@@ -1554,25 +1673,49 @@ init -10 python in mas_battleship:
                     else:
                         # See if we can fit our ship in this line
                         if len(line) >= ship_length:
-                            available_lines.append(line)
+                            add_line(line)
                         # Reset the list before continuing iterating
                         line = []
 
                 # Reached the end of this column, check if the ship would fit the line
                 if len(line) >= ship_length:
-                    available_lines.append(line)
+                    add_line(line)
 
             # Return None if we couldn't find a place for this ship
-            if not available_lines:
+            if not available_lines_and_weights:
                 return None
 
-            # Choose the one that we'll use
-            # TODO: use weighted choice
-            line = random.choice(available_lines)
+            # Pick the line we'll use
+            line = weightedChoice(available_lines_and_weights)
+            if len(line) == ship_length:
+                offset = 0
+
             # Pick where ship will start at the line (in case the line is longer than the ship)
-            # TODO: use weighted choice
-            offset = random.randint(0, len(line) - ship_length)
-            # Mirror the offset if needed
+            # If no weights provided, use randrange
+            elif weights is None:
+                offset = random.randint(0, len(line) - ship_length)
+
+            else:
+                # List of points from the picked line we can start at and their weight
+                offsets_and_weights = [] # list[ tuple[ tuple[int, int], float ] ]
+                # Calculate weight for offset 0
+                weight = 1.0
+                for i in range(ship_length):
+                    weight += weights[line[i]]
+                offsets_and_weights.append((0, weight))
+
+                # Calculate weights for other offsets using 2 pointers
+                l = 0
+                r = ship_length
+                while r < len(line):
+                    weight = weight - weights[line[l]] + weights[line[r]]
+                    offsets_and_weights.append((l+1, weight))
+                    l += 1
+                    r += 1
+
+                offset = weightedChoice(offsets_and_weights)
+
+            # Mirror the offset if the ship is facing in positive direction on the plane
             if ship.orientation in (Ship.Orientation.DOWN, Ship.Orientation.RIGHT):
                 offset += ship_length - 1
 
@@ -1631,7 +1774,7 @@ init -10 python in mas_battleship:
                 # Also add to the main list
                 self._ships.append(ship)
 
-        def place_ships(self, ships):
+        def place_ships(self, ships, weights=None):
             """
             Places ships on this grid at random positions and orientation
 
@@ -1639,13 +1782,15 @@ init -10 python in mas_battleship:
 
             IN:
                 ships - list[Ship] - ships to place
+                weights - dict[tuple[int, int], float] | None - weights for each square of the grid,
+                    this makes it possible to make some square more or les desirable for placement
             """
             orientations = Ship.Orientation.get_all()
 
             while True:
                 for ship in ships:
                     ship.orientation = random.choice(orientations)
-                    coords = self.find_place_for_ship(ship)
+                    coords = self.find_place_for_ship(ship, weights=weights)
 
                     # If we got appropriate coords, place the ship
                     if coords is not None:
@@ -1655,7 +1800,7 @@ init -10 python in mas_battleship:
                     # Otherwise try another orientation
                     else:
                         ship.rotate_around_bow(90)
-                        coords = self.find_place_for_ship(ship)
+                        coords = self.find_place_for_ship(ship, weights=weights)
 
                         # Try with the new coords
                         if coords is not None:
@@ -1664,6 +1809,7 @@ init -10 python in mas_battleship:
 
                         # Otherwise start from the beginning
                         else:
+                            log_err("Grid.place_ships failed to find correct positions for ships, this could indicate a bug")
                             self.clear()
                             break
 
@@ -2406,29 +2552,28 @@ init -10 python in mas_battleship:
                 enemy_grid - Grid - the grid of another player
             """
             ### START: internal utility functions
-            def increment_temp(heatmap, xi, yi, amount):
+            def increment_temp(heatmap, squares, amount):
                 """
                 Increases temperature for the given points
 
                 IN:
                     heatmap - dict[tuple[int, int], int] - heatmap to update
-                    xi - Iterator[int] - iterator over x coordinates
-                    yi - Iterator[int] - iterator over y coordinates
+                    squares - Sequence[tuple[int, int]] - tuple of x,y coordinates for the ship
                     amount - int - temp increase
                 """
-                for coords in zip(xi, yi):
-                    if coords not in heatmap:
-                        heatmap[coords] = 0
-                    if coords not in self._hits:
-                        heatmap[coords] += amount
+                for sqr in squares:
+                    if sqr not in heatmap:
+                        heatmap[sqr] = 0
+                    if sqr not in self._hits:
+                        heatmap[sqr] += amount
 
-            def is_ship_alive_at(grid, square):
+            def is_ship_alive_at(square, grid):
                 """
                 Checks if there's a ship that's still active
 
                 IN:
-                    grid - Grid - the grid where the ship presumably is
                     square - tuple[int, int] - the coordinates on the grid to check
+                    grid - Grid - the grid where the ship presumably is
 
                 ASSUMES:
                     We shoot at that square before (see Player.hits), otherwise it's cheating!
@@ -2437,68 +2582,48 @@ init -10 python in mas_battleship:
                     bool
                 """
                 ship = grid.get_ship_at(square)
-                return ship is not None and ship.is_alive()
+                if ship is None:
+                    log_err("_update_heatmap.is_ship_alive_at is called for a square with no ship")
+                    return False
+                return ship.is_alive()
 
-            def get_vert_adjacent_hits(grid, square):
-                """
-                Returns a list of adjacent squares to the up or down
-                where we hit a ship before and that ship is still alive
-                This might indicate that the current square also has that ship
-
-                IN:
-                    grid - Grid - the grid for which we fill the heatmap
-                    square - tuple[int, int] - the cell to check around
-
-                OUT:
-                    list[tuple[int, int]]
-                """
+            def has_hit_above(square, grid):
                 x, y = square
-                neighbours = []
                 if y > 0:
-                    n = (x, y-1)
-                    if n in self._hits and is_ship_alive_at(grid, n):
-                        neighbours.append(n)
-                if y + 1 < enemy_grid.HEIGHT:
-                    n = (x, y+1)
-                    if n in self._hits and is_ship_alive_at(grid, n):
-                        neighbours.append(n)
-                return neighbours
+                    square_above = (x, y-1)
+                    return square_above in self._hits and is_ship_alive_at(square_above, grid)
+                return False
 
-            def get_horiz_adjacent_hits(grid, square):
-                """
-                Returns a list of adjacent squares to the right or left
-                where we hit a ship before and that ship is still alive
-                This might indicate that the current square also has that ship
-
-                IN:
-                    grid - Grid - the grid for which we fill the heatmap
-                    square - tuple[int, int] - the cell to check around
-
-                OUT:
-                    list[tuple[int, int]]
-                """
+            def has_hit_to_right(square, grid):
                 x, y = square
-                neighbours = []
-                if x + 1 < enemy_grid.WIDTH:
-                    n = (x+1, y)
-                    if n in self._hits and is_ship_alive_at(grid, n):
-                        neighbours.append(n)
-                if x > 0:
-                    n = (x-1, y)
-                    if n in self._hits and is_ship_alive_at(grid, n):
-                        neighbours.append(n)
-                return neighbours
+                if x + 1 < grid.WIDTH:
+                    square_to_the_right = (x+1, y)
+                    return square_to_the_right in self._hits and is_ship_alive_at(square_to_the_right, grid)
+                return False
 
-            def get_temp_increment(xi, yi, grid, is_vertical):
+            def has_hit_below(square, grid):
+                x, y = square
+                if y + 1 < grid.HEIGHT:
+                    square_below = (x, y+1)
+                    return square_below in self._hits and is_ship_alive_at(square_below, grid)
+                return False
+
+            def has_hit_to_left(square, grid):
+                x, y = square
+                if x > 0:
+                    square_to_the_left = (x-1, y)
+                    return square_to_the_left in self._hits and is_ship_alive_at(square_to_the_left, grid)
+                return False
+
+            def get_temp_increment(squares, grid, is_vertical):
                 """
                 Returns temperature for the given points, the points are forming a line where
                 a ship could fit. By default a square has temp of 1 for each ship it could contain.
-                If there's successful hits along the line, we give extra temperature because it means
-                there's likely a ship (or at least it's nearby)
+                If there's successful hits along the line, we give extra temperature, if there's
+                hits around or misseson the line, then there couldn't be a ship and we give it solid cold 0
 
                 IN:
-                    xi - Iterator[int] - iterator over x coordinates
-                    yi - Iterator[int] - iterator over y coordinates
+                    squares - Sequence[tuple[int, int]] - tuple of x,y coordinates for the ship
                     grid - Grid - the grid for which we fill the heatmap
                     is_vertical - bool - is this position vertical or horizontal
 
@@ -2506,40 +2631,51 @@ init -10 python in mas_battleship:
                     int - temperature for the points
                 """
                 bonus_temp = 0
-                for coords in zip(xi, yi):
-                    # Empty square
+                for i, coords in enumerate(squares):
+                    # Known empty square, skip
                     if coords in self._misses:
                         return 0
 
-                    # Known ship spacing
+                    # Known ship spacing, skip
                     if coords in self.dead_ships_spacing:
                         return 0
 
-                    # If we previously hit a ship at this location, we want to finish it
+                    # We previously hit a ship at this location?
                     if coords in self._hits:
-                        if not is_ship_alive_at(grid, coords):
+                        # It's dead, skip
+                        if not is_ship_alive_at(coords, grid):
                             return 0
+                        # It's alive, prioritise finishing it
+                        bonus_temp += 1000 * len(squares)
 
-                        vneighbours = get_vert_adjacent_hits(grid, coords)
-                        hneighbours = get_horiz_adjacent_hits(grid, coords)
-                        if (
-                            (is_vertical and vneighbours)
-                            or (not is_vertical and hneighbours)
-                        ):
-                            # We have cells up/down for vertical ship or right/left for horizontal ship
-                            # So we want to focus vertically/horizontally
-                            bonus_temp += 100
-                        elif not vneighbours and not hneighbours:
-                            # We don't have any adjacent hits, so we focus around the last hit forming + pattern
-                            bonus_temp += 100
+                    if i == 0:
+                        # If there's hits before/around this ship bow, then this placement is impossible due to spacing between ships
+                        if is_vertical:
+                            if has_hit_above(coords, grid) or has_hit_to_left(coords, grid) or has_hit_to_right(coords, grid):
+                                return 0
                         else:
-                            # The ship is vertical, but hits are to left/right
-                            # or the ship is horizontal, but hits are above/below
-                            # not much reason to shoot this position, but it's worth more than unknown cells at all?
-                            # just a theory, maybe I'm wrong and we should return 1 or even 0 due to spacing around ships
-                            bonus_temp += 75
+                            if has_hit_to_left(coords, grid) or has_hit_above(coords, grid) or has_hit_below(coords, grid):
+                                return 0
 
-                # Unexplored cell where a ship can be have 1 by default
+                    elif i == len(squares) - 1:
+                        # Now check hits after/around this ship stern for the same reason
+                        if is_vertical:
+                            if has_hit_below(coords, grid) or has_hit_to_left(coords, grid) or has_hit_to_right(coords, grid):
+                                return 0
+                        else:
+                            if has_hit_to_right(coords, grid) or has_hit_above(coords, grid) or has_hit_below(coords, grid):
+                                return 0
+
+                    else:
+                        # Now check the middle of the ship for hits to its port/starboard
+                        if is_vertical:
+                            if has_hit_to_left(coords, grid) or has_hit_to_right(coords, grid):
+                                return 0
+                        else:
+                            if has_hit_above(coords, grid) or has_hit_below(coords, grid):
+                                return 0
+
+                # Unexplored squares where a ship could possible be have 1 by default
                 return 1 + bonus_temp
 
             ### END: internal utility functions
@@ -2562,7 +2698,7 @@ init -10 python in mas_battleship:
                             self.heatmap[cell] = 0
                         if cell in self._misses:
                             continue
-                        if cell in self._hits and not is_ship_alive_at(enemy_grid, cell):
+                        if cell in self._hits and not is_ship_alive_at(cell, enemy_grid):
                             continue
                         if cell in self.dead_ships_spacing:
                             continue
@@ -2570,19 +2706,19 @@ init -10 python in mas_battleship:
                         # We only check right and down orientations since left and up would be just the same,
                         # no reason to do extra work
                         if col + ship_length - 1 < enemy_grid.WIDTH:
-                            xi_for_validation, xi = itertools.tee(range(col, col + ship_length), 2)
-                            yi_for_validation, yi = itertools.tee(itertools.repeat(row, ship_length), 2)
-                            amount = get_temp_increment(xi_for_validation, yi_for_validation, enemy_grid, is_vertical=False)
+                            # Check how this ship could be placed horizontally from this square
+                            squares = tuple(zip(range(col, col + ship_length), itertools.repeat(row, ship_length)))
+                            amount = get_temp_increment(squares, enemy_grid, is_vertical=False)
                             if amount:
-                                increment_temp(self.heatmap, xi, yi, amount)
+                                increment_temp(self.heatmap, squares, amount)
                                 heatmap_sum += amount * ship_length
 
                         if row + ship_length - 1 < enemy_grid.HEIGHT:
-                            xi_for_validation, xi = itertools.tee(itertools.repeat(col, ship_length), 2)
-                            yi_for_validation, yi = itertools.tee(range(row, row+ship_length), 2)
-                            amount = get_temp_increment(xi_for_validation, yi_for_validation, enemy_grid, is_vertical=True)
+                            # Check vertical placement of the ship
+                            squares = tuple(zip(itertools.repeat(col, ship_length), range(row, row+ship_length)))
+                            amount = get_temp_increment(squares, enemy_grid, is_vertical=True)
                             if amount:
-                                increment_temp(self.heatmap, xi, yi, amount)
+                                increment_temp(self.heatmap, squares, amount)
                                 heatmap_sum += amount * ship_length
 
             if not self.heatmap:
