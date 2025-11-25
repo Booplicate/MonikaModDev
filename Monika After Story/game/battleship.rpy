@@ -2491,7 +2491,7 @@ init -10 python in mas_battleship:
         def __init__(self):
             super(AIPlayer, self).__init__()
             self.heatmap = {} # type: dict[tuple[int, int], int]
-            self.dead_ships_spacing = set() # type: set[tuple[int, int]]
+            self.dead_ships_squares = set() # type: set[tuple[int, int]]
 
         @staticmethod
         def _interpolate_num(a, b, f):
@@ -2632,12 +2632,12 @@ init -10 python in mas_battleship:
                 """
                 bonus_temp = 0
                 for i, coords in enumerate(squares):
-                    # Known empty square, skip
-                    if coords in self._misses:
+                    # Known ship spacing, skip
+                    if coords in self.dead_ships_squares:
                         return 0
 
-                    # Known ship spacing, skip
-                    if coords in self.dead_ships_spacing:
+                    # Known empty square, skip
+                    if coords in self._misses:
                         return 0
 
                     # We previously hit a ship at this location?
@@ -2696,11 +2696,11 @@ init -10 python in mas_battleship:
                         square = (col, row)
                         if square not in self.heatmap:
                             self.heatmap[square] = 0
+                        if square in self.dead_ships_squares:
+                            continue
                         if square in self._misses:
                             continue
                         if square in self._hits and not is_ship_alive_at(square, enemy_grid):
-                            continue
-                        if square in self.dead_ships_spacing:
                             continue
 
                         # We only check right and down orientations since left and up would be just the same,
@@ -2752,9 +2752,8 @@ init -10 python in mas_battleship:
             IN:
                 ship - Ship - destroyed enemy ship
             """
-            _, spacing_squares = ship.get_squares()
-            for square in spacing_squares:
-                self.dead_ships_spacing.add(square)
+            for square in zip(ship.get_squares()):
+                self.dead_ships_squares.add(square)
 
         def pick_square_for_attack(self, enemy):
             self._update_heatmap(enemy.grid)
