@@ -2691,7 +2691,7 @@ init -10 python in mas_battleship:
                             if has_hit_above(coords, grid) or has_hit_below(coords, grid):
                                 return 0
 
-                # Unexplored squares where a ship could possible be have 1 by default
+                # Unexplored squares where a ship could possibly be have 1 by default
                 return 1 + bonus_temp
 
             ### END: internal utility functions
