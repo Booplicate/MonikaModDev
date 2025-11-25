@@ -47,7 +47,7 @@ label mas_battleship_show_player_heatmap:
                 k: round(float(v) / sum(persistent._mas_game_battleship_player_ship_dataset.values()) * 100, 2)
                 for k, v in persistent._mas_game_battleship_player_ship_dataset.items()
             }
-        tmp_game._render_monika_heatmap = True
+        tmp_game._should_render_heatmap = True
 
     show monika 1eua at t31
     show screen mas_battleship_ui(tmp_game)
@@ -112,7 +112,7 @@ label mas_battleship_show_rng_placement_heatmap:
             for k, v in counter.items()
         }
         # tmp_game._monika.heatmap = counter
-        tmp_game._render_monika_heatmap = True
+        tmp_game._should_render_heatmap = True
 
     show monika 1eua at t31
     show screen mas_battleship_ui(tmp_game)
@@ -606,6 +606,8 @@ init -10 python in mas_battleship:
             ShipType.DESTROYER,
         )
 
+        MONIKA_TURN_DURATION = 0.05
+
         class GamePhase(object):
             """
             Types of Game phases
@@ -641,7 +643,8 @@ init -10 python in mas_battleship:
             self._hovered_square = None
             self._dragged_ship = None
             self._grid_conflicts = [] # type: list[tuple[int, int]]
-            self._render_monika_heatmap = False
+            self._should_render_heatmap = False
+            self._is_instant_monika_turn = False
 
             self._ship_sprites_cache = {}
 
@@ -1108,7 +1111,7 @@ init -10 python in mas_battleship:
                         (self._last_mouse_y - self.SQUARE_HEIGHT / 2 + y_offset)
                     )
 
-            if self._render_monika_heatmap:
+            if self._should_render_heatmap:
                 for coords, color in self._monika.get_heatmap_colors().items():
                     heat_overlay = store.Solid(color.replace_opacity(0.8), xsize=32, ysize=32)
                     x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
@@ -1274,9 +1277,13 @@ init -10 python in mas_battleship:
             self._last_mouse_x = x
             self._last_mouse_y = y
 
-            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_h:
-                self._render_monika_heatmap ^= True
-                raise renpy.IgnoreEvent()
+            if ev.type == pygame.KEYDOWN:
+                if ev.key == pygame.K_h:
+                    self._should_render_heatmap ^= True
+                    raise renpy.IgnoreEvent()
+                elif ev.key == pygame.K_i:
+                    self._is_instant_monika_turn ^= True
+                    raise renpy.IgnoreEvent()
 
             # When disabled we only process mouse motions
             if not self.is_sensitive and ev.type != pygame.MOUSEMOTION:
@@ -1313,11 +1320,12 @@ init -10 python in mas_battleship:
                 self._switch_turn()
                 return
 
-            quip = None#self._monika.pick_turn_start_quip(self, coords)
-            if quip is not None:
-                self.monika_say(quip[1], quip[0])
-            else:
-                renpy.pause(0.05)
+            if not self._is_instant_monika_turn:
+                quip = self._monika.pick_turn_start_quip(self, coords)
+                if quip is not None:
+                    self.monika_say(quip[1], quip[0])
+                else:
+                    renpy.pause(self.MONIKA_TURN_DURATION)
 
             self.register_shot(self._monika, self._player, coords)
             self._switch_turn()
@@ -2488,6 +2496,10 @@ init -10 python in mas_battleship:
         AI player that utilises probabilities in finding ships and targeting them down
 
         Credits to Nick Berry for the idea that become the core of this implementation
+
+        ASSUMES:
+            ships are from 2 to 5 squares long
+            ships have spacing between them
         """
         def __init__(self):
             super(AIPlayer, self).__init__()
@@ -2553,9 +2565,8 @@ init -10 python in mas_battleship:
                 s = self._interpolate_num(1.0, 0.0, fraction**10)
                 # black > color as per hue
                 v = self._interpolate_num(0.0, 1.0, store._warper.easein_quint(fraction))
-                color = store.Color(hsv=(h, s, v))
 
-                color_map[coords] = color
+                color_map[coords] = store.Color(hsv=(h, s, v))
 
             return color_map
 
@@ -2604,6 +2615,16 @@ init -10 python in mas_battleship:
                 return ship.is_alive()
 
             def has_hit_above(square, grid):
+                """
+                Checks if there's a succesful hit above the given square
+
+                IN:
+                    square - tuple[int, int] - the base square
+                    grid - Grid - the grid to check for hits
+
+                OUT:
+                    bool
+                """
                 x, y = square
                 if y > 0:
                     square_above = (x, y-1)
