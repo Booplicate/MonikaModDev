@@ -2015,7 +2015,9 @@ init -10 python in mas_battleship:
             Returns squares occupied by this ship
 
             OUT:
-                tuple[list[int], list[int]]: first list is the ship squares, second list is the spacing squares
+                tuple[tuple[int], tuple[int]]
+                    - first tuple is the ship squares
+                    - second tuple is the spacing squares
             """
             base_x, base_y = self.bow_coords
             length = self.length
@@ -2075,7 +2077,7 @@ init -10 python in mas_battleship:
                     spacing.append((x, base_y - 1))
                     spacing.append((x, base_y + 1))
 
-            return (ship, spacing)
+            return (tuple(ship), tuple(spacing))
 
         def copy(self):
             """
@@ -2502,28 +2504,43 @@ init -10 python in mas_battleship:
             Finds the maximum temp on the heatmap
 
             OUT:
-                tuple[list[tuple[int, int]], int] - tuple of:
-                    1. list of coordinates with max temp (in case there's multiple)
-                    2. value of the max temperature
+                int - value of the max temperature
+            """
+            max_temp = -1
+            for coords, temp in self.heatmap.items():
+                if temp > max_temp:
+                    max_temp = temp
+
+            if max_temp == -1:
+                log_err("_get_max_temp failed to find max temperature coordinates")
+
+            return max_temp
+
+        def _get_max_temp_squares(self):
+            """
+            Finds the squares with the maximum temp on the heatmap
+
+            OUT:
+                tuple[tuple[int, int]] - tuple of coordinates with max temp (in case there's multiple)
             """
             max_temp = -1
             max_temp_coords = []
             for coords, temp in self.heatmap.items():
                 if temp > max_temp:
                     max_temp = temp
-                    max_temp_coords = [coords]
+                    max_temp_coords[:] = [coords]
                 elif temp == max_temp:
                     max_temp_coords.append(coords)
 
             if not max_temp_coords:
-                log_err("_get_max_temp failed to find max temperature coordinates")
+                log_err("_get_max_temp_squares failed to find max temperature coordinates")
 
-            return (max_temp_coords, max_temp)
+            return tuple(max_temp_coords)
 
         def get_heatmap_colors(self):
             if not self.heatmap:
                 return {}
-            _, max_temp = self._get_max_temp()
+            max_temp = self._get_max_temp()
 
             color_map = {}
             for coords, temp in self.heatmap.items():
@@ -2752,13 +2769,13 @@ init -10 python in mas_battleship:
             IN:
                 ship - Ship - destroyed enemy ship
             """
-            for square in zip(ship.get_squares()):
+            for square in itertools.chain(*ship.get_squares()):
                 self.dead_ships_squares.add(square)
 
         def pick_square_for_attack(self, enemy):
             self._update_heatmap(enemy.grid)
 
-            max_temp_coords, _ = self._get_max_temp()
+            max_temp_coords = self._get_max_temp_squares()
             if len(max_temp_coords) > 1:
                 # TODO select using checkerboard
                 coords = random.choice(max_temp_coords)
