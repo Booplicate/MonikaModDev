@@ -543,8 +543,8 @@ init -10 python in mas_battleship:
         GRID_WIDTH = GRID_HEIGHT
         GRID_SPACING = 5
 
-        CELL_HEIGHT = 32
-        CELL_WIDTH = CELL_HEIGHT
+        SQUARE_HEIGHT = 32
+        SQUARE_WIDTH = SQUARE_HEIGHT
 
         OUTER_FRAME_THICKNESS = 20
         INNER_GRID_THICKNESS = 2
@@ -578,10 +578,10 @@ init -10 python in mas_battleship:
         )
 
         ### Indicators
-        CELL_HOVER = Image(GAME_ASSETS_FOLDER + "indicators/hover.png")
-        CELL_CONFLICT = Image(GAME_ASSETS_FOLDER + "indicators/conflict.png")
-        CELL_HIT = Image(GAME_ASSETS_FOLDER + "indicators/hit.png")
-        CELL_MISS = Image(GAME_ASSETS_FOLDER + "indicators/miss.png")
+        SQUARE_HOVER = Image(GAME_ASSETS_FOLDER + "indicators/hover.png")
+        SQUARE_CONFLICT = Image(GAME_ASSETS_FOLDER + "indicators/conflict.png")
+        SQUARE_HIT = Image(GAME_ASSETS_FOLDER + "indicators/hit.png")
+        SQUARE_MISS = Image(GAME_ASSETS_FOLDER + "indicators/miss.png")
 
         ### Ships sprites
         SHIP_TYPE_TO_SPRITE = {
@@ -639,7 +639,7 @@ init -10 python in mas_battleship:
             self._phase = self.GamePhase.PREPARATION
             self._win_state = self.WinState.UNKNOWN
 
-            self._hovered_cell = None
+            self._hovered_square = None
             self._dragged_ship = None
             self._grid_conflicts = [] # type: list[tuple[int, int]]
             self._render_monika_heatmap = False
@@ -777,7 +777,7 @@ init -10 python in mas_battleship:
                 bool
             """
             self._phase = self.GamePhase.DONE
-            self._hovered_cell = None
+            self._hovered_square = None
             self.is_sensitive = False
             return True
 
@@ -790,12 +790,12 @@ init -10 python in mas_battleship:
             renpy.restart_interaction()
 
         @staticmethod
-        def cell_coords_to_human_readable(coords):
+        def square_coords_to_human_readable(coords):
             """
-            Returns a human-readable name of the cell
+            Returns a human-readable name of the square
 
             IN:
-                coords - tuple[int, int] - the cell coordinates
+                coords - tuple[int, int] - the square coordinates
 
             ASSUMES:
                 the coordinates are correct
@@ -815,16 +815,16 @@ init -10 python in mas_battleship:
 
         def get_hovering_square(self):
             """
-            Returns a human-readable name of the cell
+            Returns a human-readable name of the square
             that the player is hovering mouse above
 
             OUT:
                 str - like "A1" or "J10"
             """
-            if not self._hovered_cell:
+            if not self._hovered_square:
                 return "n/a"
 
-            return self.cell_coords_to_human_readable(self._hovered_cell)
+            return self.square_coords_to_human_readable(self._hovered_square)
 
 
         @staticmethod
@@ -931,8 +931,8 @@ init -10 python in mas_battleship:
             x, y = coords
             grid_origin_x, grid_origin_y = grid_origin
             return (
-                grid_origin_x + cls.OUTER_FRAME_THICKNESS + x * (cls.INNER_GRID_THICKNESS + cls.CELL_WIDTH),
-                grid_origin_y + cls.OUTER_FRAME_THICKNESS + y * (cls.INNER_GRID_THICKNESS + cls.CELL_HEIGHT),
+                grid_origin_x + cls.OUTER_FRAME_THICKNESS + x * (cls.INNER_GRID_THICKNESS + cls.SQUARE_WIDTH),
+                grid_origin_y + cls.OUTER_FRAME_THICKNESS + y * (cls.INNER_GRID_THICKNESS + cls.SQUARE_HEIGHT),
             )
 
         @classmethod
@@ -958,8 +958,8 @@ init -10 python in mas_battleship:
                 return None
 
             return (
-                int((x - grid_origin_x - cls.OUTER_FRAME_THICKNESS - (int(x - grid_origin_x - cls.OUTER_FRAME_THICKNESS) / cls.CELL_WIDTH) * cls.INNER_GRID_THICKNESS) / cls.CELL_WIDTH),
-                int((y - grid_origin_y - cls.OUTER_FRAME_THICKNESS - (int(y - grid_origin_y - cls.OUTER_FRAME_THICKNESS) / cls.CELL_HEIGHT) * cls.INNER_GRID_THICKNESS) / cls.CELL_HEIGHT),
+                int((x - grid_origin_x - cls.OUTER_FRAME_THICKNESS - (int(x - grid_origin_x - cls.OUTER_FRAME_THICKNESS) / cls.SQUARE_WIDTH) * cls.INNER_GRID_THICKNESS) / cls.SQUARE_WIDTH),
+                int((y - grid_origin_y - cls.OUTER_FRAME_THICKNESS - (int(y - grid_origin_y - cls.OUTER_FRAME_THICKNESS) / cls.SQUARE_HEIGHT) * cls.INNER_GRID_THICKNESS) / cls.SQUARE_HEIGHT),
             )
 
         def _get_ship_sprite(self, ship):
@@ -986,8 +986,8 @@ init -10 python in mas_battleship:
                 self._ship_sprites_cache[key] = Transform(
                     child=sprite,
                     xanchor=0.5,
-                    yanchor=self.CELL_HEIGHT // 2,
-                    offset=(self.CELL_HEIGHT // 2, self.CELL_HEIGHT // 2),
+                    yanchor=self.SQUARE_HEIGHT // 2,
+                    offset=(self.SQUARE_HEIGHT // 2, self.SQUARE_HEIGHT // 2),
                     transform_anchor=True,
                     rotate_pad=False,
                     subpixel=True,
@@ -1037,7 +1037,7 @@ init -10 python in mas_battleship:
             # Render conflicts
             if self.is_in_preparation():
                 if self._grid_conflicts:
-                    error_mask_render = renpy.render(self.CELL_CONFLICT, width, height, st, at)
+                    error_mask_render = renpy.render(self.SQUARE_CONFLICT, width, height, st, at)
                     for coords in self._grid_conflicts:
                         x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
                         main_render.subpixel_blit(error_mask_render, (x, y))
@@ -1058,7 +1058,7 @@ init -10 python in mas_battleship:
                         main_render.place(ship_sprite, x, y)
 
                 # Render hits
-                hit_mark_render = renpy.render(self.CELL_HIT, width, height, st, at)
+                hit_mark_render = renpy.render(self.SQUARE_HIT, width, height, st, at)
                 for coords in self._player.iter_hits():
                     x, y = self._grid_coords_to_screen_coords(coords, self.TRACKING_GRID_ORIGIN)
                     main_render.subpixel_blit(hit_mark_render, (x, y))
@@ -1068,7 +1068,7 @@ init -10 python in mas_battleship:
                     main_render.subpixel_blit(hit_mark_render, (x, y))
 
                 # Render misses
-                miss_mark_render = renpy.render(self.CELL_MISS, width, height, st, at)
+                miss_mark_render = renpy.render(self.SQUARE_MISS, width, height, st, at)
                 for coords in self._player.iter_misses():
                     x, y = self._grid_coords_to_screen_coords(coords, self.TRACKING_GRID_ORIGIN)
                     main_render.subpixel_blit(miss_mark_render, (x, y))
@@ -1079,17 +1079,17 @@ init -10 python in mas_battleship:
 
                 if not self.is_done():
                     # Render hovering mask
-                    if self._hovered_cell is not None:
-                        hover_mask_render = renpy.render(self.CELL_HOVER, width, height, st, at)
-                        x, y = self._grid_coords_to_screen_coords(self._hovered_cell, self.TRACKING_GRID_ORIGIN)
+                    if self._hovered_square is not None:
+                        hover_mask_render = renpy.render(self.SQUARE_HOVER, width, height, st, at)
+                        x, y = self._grid_coords_to_screen_coords(self._hovered_square, self.TRACKING_GRID_ORIGIN)
                         main_render.subpixel_blit(hover_mask_render, (x, y))
 
             # # # Render things that only relevant during ship building
             elif self.is_in_preparation():
                 # Render hovering mask
-                if self._hovered_cell is not None:
-                    hover_mask_render = renpy.render(self.CELL_HOVER, width, height, st, at)
-                    x, y = self._grid_coords_to_screen_coords(self._hovered_cell, self.MAIN_GRID_ORIGIN)
+                if self._hovered_square is not None:
+                    hover_mask_render = renpy.render(self.SQUARE_HOVER, width, height, st, at)
+                    x, y = self._grid_coords_to_screen_coords(self._hovered_square, self.MAIN_GRID_ORIGIN)
                     main_render.subpixel_blit(hover_mask_render, (x, y))
 
                 # Render the ship that's currently dragged (if any)
@@ -1097,16 +1097,16 @@ init -10 python in mas_battleship:
                     ship_sprite = self._get_ship_sprite(self._dragged_ship)
                     if Ship.Orientation.is_vertical(self._dragged_ship.orientation):
                         x_offset = 0
-                        y_offset = self._dragged_ship.get_drag_offset_from_bow() * self.CELL_HEIGHT
+                        y_offset = self._dragged_ship.get_drag_offset_from_bow() * self.SQUARE_HEIGHT
 
                     else:
-                        x_offset = self._dragged_ship.get_drag_offset_from_bow() * self.CELL_WIDTH
+                        x_offset = self._dragged_ship.get_drag_offset_from_bow() * self.SQUARE_WIDTH
                         y_offset = 0
 
                     main_render.place(
                         ship_sprite,
-                        (self._last_mouse_x - self.CELL_WIDTH / 2 + x_offset),
-                        (self._last_mouse_y - self.CELL_HEIGHT / 2 + y_offset)
+                        (self._last_mouse_x - self.SQUARE_WIDTH / 2 + x_offset),
+                        (self._last_mouse_y - self.SQUARE_HEIGHT / 2 + y_offset)
                     )
 
             if self._render_monika_heatmap:
@@ -1174,8 +1174,8 @@ init -10 python in mas_battleship:
                     self._redraw_now()
 
                 coords = self._screen_coords_to_grid_coords(x, y, self.MAIN_GRID_ORIGIN)
-                if coords != self._hovered_cell:
-                    self._hovered_cell = coords
+                if coords != self._hovered_square:
+                    self._hovered_square = coords
                     self._redraw_now()
                     self._update_screens()
                     # NOTE: usually we want to pass mousemoution events to other dispalyable
@@ -1237,8 +1237,8 @@ init -10 python in mas_battleship:
             # # # The player moves the mouse, we may need to update the screen for hover events
             if ev.type == pygame.MOUSEMOTION:
                 coords = self._screen_coords_to_grid_coords(x, y, self.TRACKING_GRID_ORIGIN)
-                if coords != self._hovered_cell:
-                    self._hovered_cell = coords
+                if coords != self._hovered_square:
+                    self._hovered_square = coords
                     self._redraw_now()
                     self._update_screens()
                     # NOTE: usually we want to pass mousemoution events to other dispalyable
@@ -1373,10 +1373,10 @@ init -10 python in mas_battleship:
                 self.GRID_FRAME,
                 self.GRID_FOREGROUND,
                 self.WATER_LAYER,
-                self.CELL_HOVER,
-                self.CELL_CONFLICT,
-                self.CELL_HIT,
-                self.CELL_MISS,
+                self.SQUARE_HOVER,
+                self.SQUARE_CONFLICT,
+                self.SQUARE_HIT,
+                self.SQUARE_MISS,
             ] + list(self.SHIP_TYPE_TO_SPRITE.values())
 
 
@@ -1387,9 +1387,9 @@ init -10 python in mas_battleship:
         HEIGHT = 10
         WIDTH = HEIGHT
 
-        class CellState(object):
+        class SquareState(object):
             """
-            Types of grid cell consts
+            Types of grid square consts
             TODO: turn this into enum
             """
             EMPTY = 0
@@ -1405,14 +1405,14 @@ init -10 python in mas_battleship:
             """
             Constructor
             """
-            # Coordinates: cell state
-            self._cell_states = {
-                (col, row): self.CellState.EMPTY
+            # Coordinates: square state
+            self._square_states = {
+                (col, row): self.SquareState.EMPTY
                 for row in range(self.HEIGHT)
                 for col in range(self.WIDTH)
-            }
+            } # type: dict[tuple[int, int], SquareState]
             # Coordinates: ships
-            self._ships_grid = {coords: [] for coords in self._cell_states.iterkeys()}
+            self._ships_grid = {coords: [] for coords in self._square_states.iterkeys()} # type: dict[tuple[int, int], list[Ship]]
             # All ships on the grid
             self._ships = []
 
@@ -1434,8 +1434,8 @@ init -10 python in mas_battleship:
             Clears this grid
             """
             if clear_grid:
-                for coords in self._cell_states:
-                    self._cell_states[coords] = self.CellState.EMPTY
+                for coords in self._square_states:
+                    self._square_states[coords] = self.SquareState.EMPTY
 
             if clear_map:
                 for ships in self._ships_grid.itervalues():
@@ -1457,9 +1457,9 @@ init -10 python in mas_battleship:
             x, y = coords
             return (0 <= x < self.WIDTH) and (0 <= y < self.HEIGHT)
 
-        def _get_cell_at(self, coords):
+        def _get_square_at(self, coords):
             """
-            Returns the state of a cell
+            Returns the state of a square
 
             IN:
                 coords - tuple[int, int] - coordinates
@@ -1468,11 +1468,11 @@ init -10 python in mas_battleship:
                 int as one of states,
                 or None if the given coordinates are out of this grid
             """
-            return self._cell_states.get(coords, None)
+            return self._square_states.get(coords, None)
 
         def is_empty_at(self, coords):
             """
-            Checks if the cell at the given coordinates is empty
+            Checks if the square at the given coordinates is empty
             (has no ship nor spacing for a ship)
 
             IN:
@@ -1481,11 +1481,11 @@ init -10 python in mas_battleship:
             OUT:
                 bool - True if free, False otherwise
             """
-            return self._get_cell_at(coords) == self.CellState.EMPTY
+            return self._get_square_at(coords) == self.SquareState.EMPTY
 
         def is_spacing_at(self, coords):
             """
-            Checks if the cell at the given coordinates is occupied by ship spacing
+            Checks if the square at the given coordinates is occupied by ship spacing
 
             IN:
                 coords - tuple[int, int] - coordinates
@@ -1493,11 +1493,11 @@ init -10 python in mas_battleship:
             OUT:
                 bool - True if free, False otherwise
             """
-            return self._get_cell_at(coords) == self.CellState.SPACING
+            return self._get_square_at(coords) == self.SquareState.SPACING
 
         def is_ship_at(self, coords):
             """
-            Checks if the cell at the given coordinates is occupied by a ship
+            Checks if the square at the given coordinates is occupied by a ship
 
             IN:
                 coords - tuple[int, int] - coordinates
@@ -1505,11 +1505,11 @@ init -10 python in mas_battleship:
             OUT:
                 bool - True if free, False otherwise
             """
-            return self._get_cell_at(coords) == self.CellState.SHIP
+            return self._get_square_at(coords) == self.SquareState.SHIP
 
         def is_empty_or_spacing_at(self, coords):
             """
-            Checks if the cell at the given coordinates has no ship
+            Checks if the square at the given coordinates has no ship
 
             IN:
                 coords - tuple[int, int] - coordinates
@@ -1519,22 +1519,22 @@ init -10 python in mas_battleship:
             """
             return self.is_empty_at(coords) or self.is_spacing_at(coords)
 
-        def _set_cell_at(self, coords, value):
+        def _set_square_at(self, coords, value):
             """
-            Set a cell to a new state
+            Set a square to a new state
             This will do nothing if the given coords are outside of this grid
 
             IN:
                 coords - tuple[int, int] - coordinates
-                value - new state for the cell
+                value - new state for the square
             """
             if (
-                coords not in self._cell_states
-                or value not in self.CellState.get_all()
+                coords not in self._square_states
+                or value not in self.SquareState.get_all()
             ):
                 return
 
-            self._cell_states[coords] = value
+            self._square_states[coords] = value
 
         def get_all_squares_with_ships(self):
             """
@@ -1544,8 +1544,8 @@ init -10 python in mas_battleship:
                 list[tuple[int, int]]
             """
             rv = [] # type: list[tuple[int, int]]
-            for coords, state in self._cell_states.items():
-                if state == self.CellState.SHIP:
+            for coords, state in self._square_states.items():
+                if state == self.SquareState.SHIP:
                     rv.append(coords)
             return rv
 
@@ -1553,7 +1553,7 @@ init -10 python in mas_battleship:
             """
             Returns a ship at the given coordinates
 
-            NOTE: If for some reason we have more than one ship in the cell,
+            NOTE: If for some reason we have more than one ship in the square,
                 this will return the one that was added last
 
             IN:
@@ -1575,8 +1575,8 @@ init -10 python in mas_battleship:
             OUT:
                 bool
             """
-            for coords, cell_state in self._cell_states.iteritems():
-                if cell_state == self.CellState.CONFLICT:
+            for coords, square_state in self._square_states.iteritems():
+                if square_state == self.SquareState.CONFLICT:
                     return True
             return False
 
@@ -1589,13 +1589,13 @@ init -10 python in mas_battleship:
             """
             return [
                 coords
-                for coords, cell_state in self._cell_states.iteritems()
-                if cell_state == self.CellState.CONFLICT
+                for coords, square_state in self._square_states.iteritems()
+                if square_state == self.SquareState.CONFLICT
             ]
 
         def update(self):
             """
-            Goes through this grid and sets its cells again
+            Goes through this grid and sets its squares again
             """
             self.clear(clear_map=False)
 
@@ -1724,7 +1724,7 @@ init -10 python in mas_battleship:
         def place_ship(self, ship, add_to_map=True):
             """
             Places a ship at the coordinates of its bow,
-            sets the appropriate state for the cells under the ship and adds
+            sets the appropriate state for the squares under the ship and adds
             the ship to the ship map
 
             NOTE: this makes no checks whether or not we can place the ship on the given pos
@@ -1734,41 +1734,41 @@ init -10 python in mas_battleship:
                 add_to_map - whether we add this ship to the ship map or we do not
                     (Default: True)
             """
-            ship_cells, spacing_cells = ship.get_cells()
+            ship_squares, spacing_squares = ship.get_squares()
 
             is_ship_within_grid = True
-            for cell in ship_cells:
-                # We have to iterate twice, if at least one cell is out of bounds,
+            for square in ship_squares:
+                # We have to iterate twice, if at least one square is out of bounds,
                 # we want to mark all of them as conflict, so the player knows something is wrong
-                if not self.is_within(cell):
+                if not self.is_within(square):
                     is_ship_within_grid = False
                     break
 
-            for cell in ship_cells:
-                if is_ship_within_grid and self.is_empty_at(cell):
-                    cell_state = self.CellState.SHIP
+            for square in ship_squares:
+                if is_ship_within_grid and self.is_empty_at(square):
+                    square_state = self.SquareState.SHIP
                 else:
-                    cell_state = self.CellState.CONFLICT
+                    square_state = self.SquareState.CONFLICT
 
-                self._set_cell_at(cell, cell_state)
+                self._set_square_at(square, square_state)
 
                 if add_to_map:
                     # If the ship was placed incorrectly, then its coords may be out of this grid
-                    if cell in self._ships_grid:
-                        self._ships_grid[cell].append(ship)
+                    if square in self._ships_grid:
+                        self._ships_grid[square].append(ship)
 
-            for cell in spacing_cells:
+            for square in spacing_squares:
                 # If empty, set spacing
                 # if spacing, keep it
                 # if there's a ship, set conflict
                 # if conflict, keep it
-                if self.is_empty_or_spacing_at(cell):
-                    cell_state = self.CellState.SPACING
+                if self.is_empty_or_spacing_at(square):
+                    square_state = self.SquareState.SPACING
 
                 else:
-                    cell_state = self.CellState.CONFLICT
+                    square_state = self.SquareState.CONFLICT
 
-                self._set_cell_at(cell, cell_state)
+                self._set_square_at(square, square_state)
 
             if add_to_map:
                 # Also add to the main list
@@ -2010,12 +2010,12 @@ init -10 python in mas_battleship:
                 offset *= -1
             return offset
 
-        def get_cells(self):
+        def get_squares(self):
             """
-            Returns cells occupied by this ship
+            Returns squares occupied by this ship
 
             OUT:
-                tuple[list[int], list[int]]: first list is the ship cells, second list is the spacing cells
+                tuple[list[int], list[int]]: first list is the ship squares, second list is the spacing squares
             """
             base_x, base_y = self.bow_coords
             length = self.length
@@ -2372,9 +2372,9 @@ init -10 python in mas_battleship:
             _Quip(
                 exprs=("1lta", "1lua"),
                 lines=(
-                    _("Maybe {cell}..."),
-                    _("Hmmm.{{w=0.1}}.{{w=0.1}}.{{w=0.1}} Let's try {cell}."),
-                    _("What are you hiding at.{{w=0.1}}.{{w=0.1}}.{{w=0.1}}{cell}?"),
+                    _("Maybe {square}..."),
+                    _("Hmmm.{{w=0.1}}.{{w=0.1}}.{{w=0.1}} Let's try {square}."),
+                    _("What are you hiding at.{{w=0.1}}.{{w=0.1}}.{{w=0.1}}{square}?"),
                 ),
             ),
         )
@@ -2463,7 +2463,7 @@ init -10 python in mas_battleship:
 
             if random.random() < 0.1:
                 expr, what = self._pick_quip(self.TURN_START_SHOT_ANNOUNCE, should_escape=True)
-                what = what.format(cell=game.cell_coords_to_human_readable(next_attack_coords))
+                what = what.format(square=game.square_coords_to_human_readable(next_attack_coords))
                 return (expr, what)
 
             if ship_diff <= -1 and monika_ships_count >= 2:
@@ -2693,14 +2693,14 @@ init -10 python in mas_battleship:
 
                 for row in range(enemy_grid.HEIGHT):
                     for col in range(enemy_grid.WIDTH):
-                        cell = (col, row)
-                        if cell not in self.heatmap:
-                            self.heatmap[cell] = 0
-                        if cell in self._misses:
+                        square = (col, row)
+                        if square not in self.heatmap:
+                            self.heatmap[square] = 0
+                        if square in self._misses:
                             continue
-                        if cell in self._hits and not is_ship_alive_at(cell, enemy_grid):
+                        if square in self._hits and not is_ship_alive_at(square, enemy_grid):
                             continue
-                        if cell in self.dead_ships_spacing:
+                        if square in self.dead_ships_spacing:
                             continue
 
                         # We only check right and down orientations since left and up would be just the same,
@@ -2752,9 +2752,9 @@ init -10 python in mas_battleship:
             IN:
                 ship - Ship - destroyed enemy ship
             """
-            _, spacing_cells = ship.get_cells()
-            for cell in spacing_cells:
-                self.dead_ships_spacing.add(cell)
+            _, spacing_squares = ship.get_squares()
+            for square in spacing_squares:
+                self.dead_ships_spacing.add(square)
 
         def pick_square_for_attack(self, enemy):
             self._update_heatmap(enemy.grid)
