@@ -6,8 +6,7 @@
 default persistent._mas_game_battleship_wins = {"Monika": 0, "Player": 0}
 default persistent._mas_game_battleship_abandoned = 0
 # TODO: replace grid dicts with lists of lists?
-# TODO: rename to _mas_game_battleship_player_ship_dataset
-default persistent._mas_game_battleship_player_ship_heatmap = {
+default persistent._mas_game_battleship_player_ship_dataset = {
     (col, row): 0
     for row in range(store.mas_battleship.Grid.HEIGHT)
     for col in range(store.mas_battleship.Grid.WIDTH)
@@ -42,11 +41,11 @@ label mas_battleship_show_player_heatmap:
     python:
         tmp_game = mas_battleship.Battleship()
         if show_raw:
-            tmp_game._monika.heatmap = dict(persistent._mas_game_battleship_player_ship_heatmap)
+            tmp_game._monika.heatmap = dict(persistent._mas_game_battleship_player_ship_dataset)
         else:
             tmp_game._monika.heatmap = {
-                k: round(float(v) / sum(persistent._mas_game_battleship_player_ship_heatmap.values()) * 100, 2)
-                for k, v in persistent._mas_game_battleship_player_ship_heatmap.items()
+                k: round(float(v) / sum(persistent._mas_game_battleship_player_ship_dataset.values()) * 100, 2)
+                for k, v in persistent._mas_game_battleship_player_ship_dataset.items()
             }
         tmp_game._render_monika_heatmap = True
 
@@ -531,7 +530,7 @@ init -10 python in mas_battleship:
 
     def collect_player_data(game):
         for coords in game._player.grid.get_all_squares_with_ships():
-            persistent._mas_game_battleship_player_ship_heatmap[coords] += 1
+            persistent._mas_game_battleship_player_ship_dataset[coords] += 1
 
 
     class Battleship(renpy.display.core.Displayable):
@@ -901,7 +900,7 @@ init -10 python in mas_battleship:
 
             self._player.grid.clear()
             if should_use_dataset:
-                weights = persistent._mas_game_battleship_player_ship_heatmap
+                weights = persistent._mas_game_battleship_player_ship_dataset
             else:
                 weights = None
             self._player.grid.place_ships(Ship.build_ships(self.SHIP_PRESET_CLASSIC), weights=weights)
@@ -2750,7 +2749,7 @@ init -10 python in mas_battleship:
                 # and rely less on the current state of the board (skip misses/hits/where a ship truly fits)
                 weight = 0.5
                 # Otherwise enchance heatmap with the dataset we collected
-                dataset_sum = sum(persistent._mas_game_battleship_player_ship_heatmap.values())
+                dataset_sum = sum(persistent._mas_game_battleship_player_ship_dataset.values())
                 if dataset_sum:
                     for coords, temp in self.heatmap.items():
                         if not temp:
@@ -2759,7 +2758,7 @@ init -10 python in mas_battleship:
                         # Normalise
                         temp = float(temp) / heatmap_sum
                         # Apply probabilities from the dataset
-                        dataset_temp = float(persistent._mas_game_battleship_player_ship_heatmap[coords]) / dataset_sum
+                        dataset_temp = float(persistent._mas_game_battleship_player_ship_dataset[coords]) / dataset_sum
                         self.heatmap[coords] = (temp*(1.0 - weight) + dataset_temp*weight) * 100
 
         def on_enemy_ship_destroyed(self, ship):
