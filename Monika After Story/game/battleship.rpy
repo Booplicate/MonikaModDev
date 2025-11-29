@@ -690,6 +690,7 @@ init -10 python in mas_battleship:
             ShipType.CRUISER: Image(GAME_ASSETS_FOLDER + "ships/cruiser.png"),
             ShipType.DESTROYER: Image(GAME_ASSETS_FOLDER + "ships/destroyer.png"),
         }
+        _SHIP_SPRITES = list(SHIP_TYPE_TO_SPRITE.values())
         # Used for sunk ships
         GREYOUT_MATRIX = store.im.matrix.desaturate() * store.im.matrix.brightness(-0.25)
 
@@ -1506,7 +1507,7 @@ init -10 python in mas_battleship:
                 self.SQUARE_CONFLICT,
                 self.SQUARE_HIT,
                 self.SQUARE_MISS,
-            ] + list(self.SHIP_TYPE_TO_SPRITE.values())
+            ] + self._SHIP_SPRITES
 
 
     class Grid(object):
