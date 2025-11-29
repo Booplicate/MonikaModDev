@@ -1442,10 +1442,6 @@ init -10 python in mas_battleship:
             """
             Logic for playing Player turn
             """
-            if self.is_monika_turn():
-                log_err("called Battleship.handle_player_turn, but it's Monika's turn")
-                return
-
             # NOTE: We pretty much always want to start an interaction for stuff like mouse motion and whatnot
             ui.interact(type="minigame")
 
@@ -1486,11 +1482,12 @@ init -10 python in mas_battleship:
             if self.is_monika_turn() and self.is_in_action():
                 self.handle_monika_turn()
 
-            if not self.is_done():
-                self._monika.on_game_loop_cycle(self._player)
-                self.handle_player_turn()
-                self._player.on_game_loop_cycle(self._monika)
+            self._monika.on_game_loop_cycle(self._player)
 
+            if not self.is_done():
+                self.handle_player_turn()
+
+            self._player.on_game_loop_cycle(self._monika)
 
         def visit(self):
             return [
@@ -2875,6 +2872,7 @@ init -10 python in mas_battleship:
                                 return 0
 
                 # Unexplored squares where a ship could possibly be have 1 by default
+                # TODO: maybe give base temp based on ship length? It's more important to find big ships first, no?
                 return 1 + bonus_temp
 
             ### END: internal utility functions
