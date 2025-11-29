@@ -1475,7 +1475,7 @@ init -10 python in mas_battleship:
                 player.register_hit(square)
                 ship.take_hit()
                 if not ship.is_alive():
-                    player.on_enemy_ship_destroyed(ship)
+                    player.on_opponent_ship_destroyed(ship)
                     if target_player.has_lost_all_ships():
                         self.set_phase_done()
                         if self.is_monika_turn():
@@ -1489,10 +1489,12 @@ init -10 python in mas_battleship:
             """
             if self.is_monika_turn() and self.is_in_action():
                 self.handle_monika_turn()
-            self._monika._update_heatmap(self._player.grid)
 
             if not self.is_done():
+                self._monika.on_game_loop_cycle(self._player)
                 self.handle_player_turn()
+                self._player.on_game_loop_cycle(self._monika)
+
 
         def visit(self):
             return [
@@ -2347,12 +2349,21 @@ init -10 python in mas_battleship:
             """
             return iter(self._misses)
 
-        def on_enemy_ship_destroyed(self, ship):
+        def on_opponent_ship_destroyed(self, ship):
             """
             Callback should be called when we destroyed a ship with one of the shots
 
             IN:
-                ship - Ship - destroyed enemy ship
+                ship - Ship - destroyed opponent ship
+            """
+            pass
+
+        def on_game_loop_cycle(self, opponent):
+            """
+            Callback should be called every game loop cycle regardless of turn order
+
+            IN:
+                opponent - Player - another player
             """
             pass
 
@@ -2600,11 +2611,11 @@ init -10 python in mas_battleship:
 
             return self._pick_quip(self.TURN_START_NORM)
 
-        def pick_square_for_attack(self, enemy):
+        def pick_square_for_attack(self, opponent):
             """
             AI picks a square for the next shot
 
-            enemy - Player - the other player
+            opponent - Player - the other player
 
             OUT:
                 tuple[int, int] - coordinates of the square to shoot
@@ -2700,13 +2711,13 @@ init -10 python in mas_battleship:
 
             return color_map
 
-        def _update_heatmap(self, enemy_grid):
+        def _update_heatmap(self, opponent_grid):
             """
-            Analyzes enemy grid using dealt hits and misses, and refills the heatmap
+            Analyzes opponent grid using dealt hits and misses, and refills the heatmap
             NOTE: This is a heavy function, mind when you call it
 
             IN:
-                enemy_grid - Grid - the grid of another player
+                opponent_grid - Grid - the grid of another player
             """
             ### START: internal utility functions
             def increment_temp(heatmap, squares, amount):
@@ -2859,14 +2870,14 @@ init -10 python in mas_battleship:
             # TODO: Is there any point of analysing every ship?
             # Can't we skip the ships whose length we already handled? They don't seem to
             # add any meaningful data
-            for ship in enemy_grid.iter_ships():
+            for ship in opponent_grid.iter_ships():
                 # Only count active ships
                 if not ship.is_alive():
                     continue
                 ship_length = ship.length
 
-                for row in range(enemy_grid.HEIGHT):
-                    for col in range(enemy_grid.WIDTH):
+                for row in range(opponent_grid.HEIGHT):
+                    for col in range(opponent_grid.WIDTH):
                         square = (col, row)
                         if square not in self.heatmap:
                             self.heatmap[square] = 0
@@ -2874,22 +2885,22 @@ init -10 python in mas_battleship:
                             continue
                         if square in self._misses:
                             continue
-                        if square in self._hits and not is_ship_alive_at(square, enemy_grid):
+                        if square in self._hits and not is_ship_alive_at(square, opponent_grid):
                             continue
 
                         # We only check right and down orientations since left and up would be just the same,
                         # no reason to do extra work
-                        if col + ship_length - 1 < enemy_grid.WIDTH:
+                        if col + ship_length - 1 < opponent_grid.WIDTH:
                             # Check how this ship could be placed horizontally from this square
                             squares = tuple(zip(range(col, col + ship_length), itertools.repeat(row, ship_length)))
-                            amount = get_temp_increment(squares, enemy_grid, is_vertical=False)
+                            amount = get_temp_increment(squares, opponent_grid, is_vertical=False)
                             if amount:
                                 heatmap_sum += increment_temp(self.heatmap, squares, amount)
 
-                        if row + ship_length - 1 < enemy_grid.HEIGHT:
+                        if row + ship_length - 1 < opponent_grid.HEIGHT:
                             # Check vertical placement of the ship
                             squares = tuple(zip(itertools.repeat(col, ship_length), range(row, row+ship_length)))
-                            amount = get_temp_increment(squares, enemy_grid, is_vertical=True)
+                            amount = get_temp_increment(squares, opponent_grid, is_vertical=True)
                             if amount:
                                 heatmap_sum += increment_temp(self.heatmap, squares, amount)
 
@@ -2914,18 +2925,17 @@ init -10 python in mas_battleship:
                         dataset_temp = float(self.dataset[coords]) / dataset_sum
                         self.heatmap[coords] = (temp*(1.0 - self.dataset_weight) + dataset_temp*self.dataset_weight) * 100
 
-        def on_enemy_ship_destroyed(self, ship):
-            """
-            Callback should be called when we destroyed a ship with one of the shots
-
-            IN:
-                ship - Ship - destroyed enemy ship
-            """
+        def on_opponent_ship_destroyed(self, ship):
             for square in itertools.chain(*ship.get_squares()):
                 self.dead_ships_squares.add(square)
 
-        def pick_square_for_attack(self, enemy):
-            self._update_heatmap(enemy.grid)
+        def on_game_loop_cycle(self, opponent):
+            if renpy.config.developer:
+                # This is slow and only used for debugging
+                self._update_heatmap(opponent.grid)
+
+        def pick_square_for_attack(self, opponent):
+            self._update_heatmap(opponent.grid)
 
             max_temp_coords = self._get_max_temp_squares()
             if len(max_temp_coords) > 1:
