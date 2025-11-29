@@ -2872,7 +2872,6 @@ init -10 python in mas_battleship:
                                 return 0
 
                 # Unexplored squares where a ship could possibly be have 1 by default
-                # TODO: maybe give base temp based on ship length? It's more important to find big ships first, no?
                 return 1 + bonus_temp
 
             ### END: internal utility functions
