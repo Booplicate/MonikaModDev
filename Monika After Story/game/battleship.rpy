@@ -5,7 +5,6 @@
 # default persistent._mas_game_battleship_best_score = {"Monika": 0, "Player": 0}
 default persistent._mas_game_battleship_wins = {"Monika": 0, "Player": 0}
 default persistent._mas_game_battleship_abandoned = 0
-# TODO: replace grid dicts with lists of lists?
 default persistent._mas_game_battleship_player_ship_dataset = {
     (col, row): 0
     for row in range(store.mas_battleship.Grid.HEIGHT)
@@ -234,10 +233,6 @@ label mas_battleship_run_simulation.loop:
     $ del iterations, settings, test_agent_wins, monika_wins, tmp_game
     return
 
-
-init 999 python:
-    # TODO: rm this
-    mas_enable_quit()
 
 screen mas_battleship_ui(game):
     layer "minigames"
@@ -664,7 +659,7 @@ init -10 python in mas_battleship:
 
         # HACK: The animated sprite is blinking at the edges, probably due to incorrect blitting and pixel smudging
         # I come up with a hack: we render this layer 2px bigger and overlap its edges with the grid frame
-        HACK_WATER_LAYER_OFFSET = 2
+        WATER_LAYER_OFFSET = 2
 
         WATER_LAYER = store.Transform(
             store.mas_battleship_water_transform(
@@ -673,7 +668,7 @@ init -10 python in mas_battleship:
                 height=1024,
             ),
             # TODO: replace with xysize in r8
-            size=(GRID_HEIGHT - OUTER_FRAME_THICKNESS*2 + HACK_WATER_LAYER_OFFSET*2, GRID_WIDTH - OUTER_FRAME_THICKNESS*2 + HACK_WATER_LAYER_OFFSET*2),
+            size=(GRID_HEIGHT - OUTER_FRAME_THICKNESS*2 + WATER_LAYER_OFFSET*2, GRID_WIDTH - OUTER_FRAME_THICKNESS*2 + WATER_LAYER_OFFSET*2),
         )
 
         ### Indicators
@@ -1118,8 +1113,8 @@ init -10 python in mas_battleship:
             main_render.subpixel_blit(
                 water_layer_render,
                 (
-                    self.MAIN_GRID_ORIGIN_X + self.OUTER_FRAME_THICKNESS - self.HACK_WATER_LAYER_OFFSET,
-                    self.MAIN_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS  - self.HACK_WATER_LAYER_OFFSET,
+                    self.MAIN_GRID_ORIGIN_X + self.OUTER_FRAME_THICKNESS - self.WATER_LAYER_OFFSET,
+                    self.MAIN_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS  - self.WATER_LAYER_OFFSET,
                 ),
             )
             main_render.subpixel_blit(grid_frame_render, self.MAIN_GRID_ORIGIN)
@@ -1131,8 +1126,8 @@ init -10 python in mas_battleship:
                 main_render.subpixel_blit(
                     water_layer_render,
                     (
-                        self.TRACKING_GRID_ORIGIN_X + self.OUTER_FRAME_THICKNESS - self.HACK_WATER_LAYER_OFFSET,
-                        self.TRACKING_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS - self.HACK_WATER_LAYER_OFFSET,
+                        self.TRACKING_GRID_ORIGIN_X + self.OUTER_FRAME_THICKNESS - self.WATER_LAYER_OFFSET,
+                        self.TRACKING_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS - self.WATER_LAYER_OFFSET,
                     ),
                 )
                 main_render.subpixel_blit(grid_frame_render, self.TRACKING_GRID_ORIGIN)
@@ -2650,6 +2645,17 @@ init -10 python in mas_battleship:
 
         @staticmethod
         def _interpolate_num(a, b, f):
+            """
+            Interpolates a number from A to B using time fraction F
+
+            IN:
+                a - float - the start value of the number
+                b - float - the final value of the number
+                f - float - the time fraction, must be within [0.0, 1.0]
+
+            OUT:
+                float
+            """
             return a + (b - a)*f
 
         def _get_max_temp(self):
@@ -2691,6 +2697,13 @@ init -10 python in mas_battleship:
             return tuple(max_temp_coords)
 
         def get_heatmap_colors(self):
+            """
+            Returns a dict coordinates: colour, used to render the heatmap
+            for debugging
+
+            OUT:
+                dict[tuple[int, int], Color]
+            """
             if not self.heatmap:
                 return {}
             max_temp = self._get_max_temp()
