@@ -431,7 +431,8 @@ label mas_battleship_game_loop:
 
 label mas_battleship_game_end:
     python:
-        mas_battleship.collect_player_data(mas_battleship.game)
+        if mas_battleship.game.get_turn_count() > 0:
+            mas_battleship.collect_player_data(mas_battleship.game)
         moni_wins = mas_battleship.get_monika_wins()
         player_wins = mas_battleship.get_player_wins()
         rng = random.random()
@@ -460,9 +461,6 @@ label mas_battleship_game_end:
             m 1hua "Ehehe~"
 
     elif mas_battleship.game.did_player_giveup():
-        # TODO: this should be in the else path before, don't give Monika wins if 0 turns were made
-        $ mas_battleship.increment_monika_wins()
-
         if mas_battleship.game.get_turn_count() == 0:
             m 2etc "But we didn't even get started."
             m 7eka "In any case, if you change your mind again, let me know."
@@ -470,6 +468,7 @@ label mas_battleship_game_end:
 
         else:
             $ mas_battleship.increment_player_surrenders()
+            $ mas_battleship.increment_monika_wins()
 
             if mas_battleship.game.get_turn_count() < 20:
                 m 2ekc "Giving up so early, [player]?"
@@ -488,10 +487,10 @@ label mas_battleship_game_end:
     # Only suggest to play again if player finished last game
     if mas_battleship.game.is_player_winner() or mas_battleship.game.is_monika_winner():
         $ play_again_question = random.choice((
-            "How about we play more?",
-            "Would you like to play another game?",
-            "Let's play again?",
-            "Let's play more?",
+            _("How about we play more?"),
+            _("Would you like to play another game?"),
+            _("Let's play again?"),
+            _("Let's play more?"),
         ))
         m 3eua "[play_again_question]{nw}"
         $ _history_list.pop()
