@@ -17,15 +17,15 @@ init 5 python:
     addEvent(
         Event(
             persistent.event_database,
-            eventlabel="mas_battleship_show_player_heatmap",
+            eventlabel="mas_battleship_show_player_dataset",
             category=["dev"],
-            prompt="SHOW PLAYER SHIP DATA HEATMAP",
+            prompt="SHOW BATTLESHIP PLAYER SHIP DATASET",
             rules={"keep_idle_exp": None},
             pool=True,
             unlocked=True,
         )
     )
-label mas_battleship_show_player_heatmap:
+label mas_battleship_show_player_dataset:
     $ show_raw = False
     m 3eua "Raw or probabilities?{nw}"
     $ _history_list.pop()
@@ -57,14 +57,13 @@ label mas_battleship_show_player_heatmap:
     $ del show_raw, tmp_game
     return
 
-
 init 5 python:
     addEvent(
         Event(
             persistent.event_database,
             eventlabel="mas_battleship_show_rng_placement_heatmap",
             category=["dev"],
-            prompt="SHOW RANDOM SHIP PLACEMENT HEATMAP",
+            prompt="SHOW BATTLESHIP RANDOM SHIP PLACEMENT HEATMAP",
             rules={"keep_idle_exp": None},
             pool=True,
             unlocked=True,
@@ -72,13 +71,13 @@ init 5 python:
     )
 label mas_battleship_show_rng_placement_heatmap:
     $ iterations = store.mas_utils.tryparseint(
-            renpy.input(
-                "How many iterations would you like to run? Default 10000.",
-                allow=numbers_only,
-                length=5,
-            ).strip("\t\n\r"),
-            10000,
-        )
+        renpy.input(
+            "How many iterations would you like to run? Default 10000.",
+            allow=numbers_only,
+            length=5,
+        ).strip("\t\n\r"),
+        10000,
+    )
 
     $ use_player_data = False
     m 3eua "Should I use player data to influence the placement?{nw}"
@@ -132,6 +131,107 @@ label mas_battleship_show_rng_placement_heatmap:
             pass
 
     $ del iterations, use_player_data, tmp_game, counter, total
+    return
+
+init 5 python:
+    addEvent(
+        Event(
+            persistent.event_database,
+            eventlabel="mas_battleship_run_simulation",
+            category=["dev"],
+            prompt="RUN BATTLESHIP SIMULATION",
+            rules={"keep_idle_exp": None},
+            pool=True,
+            unlocked=True,
+        )
+    )
+label mas_battleship_run_simulation:
+    show monika 1eua
+    $ iterations = store.mas_utils.tryparseint(
+        renpy.input(
+            "How many iterations would you like to run? Default 10.",
+            allow=numbers_only,
+            length=5,
+        ).strip("\t\n\r"),
+        10,
+    )
+
+    $ buttons = [
+        ("Show boards (slower)?", "show_boards", False, True, False),
+        ("Fast turns?", "fast_turns", True, True, False),
+        ("Show Monika's ship (slower)?", "show_monika_ships", False, True, False),
+        ("Show heatmap (slower)?", "show_heatmap", False, True, False),
+        ("Should test agent position ships using dataset?", "agent_uses_dataset", False, True, False),
+        ("Should Monika use dataset for shots?", "monika_uses_dataset", False, True, False),
+    ]
+    call screen mas_check_scrollable_menu(buttons, mas_ui.SCROLLABLE_MENU_TXT_MEDIUM_AREA, mas_ui.SCROLLABLE_MENU_XALIGN, selected_button_prompt="Run", return_all=True)
+    python:
+        del buttons
+        settings = _return
+
+        test_agent_wins = 0
+        monika_wins = 0
+
+    if not settings["show_boards"]:
+        m 1dsa "The game may hang, bear with me...{nw}"
+
+label mas_battleship_run_simulation.loop:
+    python:
+        iterations -= 1
+        tmp_game = mas_battleship.BattleshipAITest()
+        if not settings["monika_uses_dataset"]:
+            tmp_game._monika.dataset = None
+        tmp_game._should_render_heatmap = settings["show_heatmap"]
+        tmp_game._is_instant_monika_turn = settings["fast_turns"]
+        tmp_game._should_render_monika_ships = settings["show_monika_ships"]
+        tmp_game.build_and_place_monika_ships()
+        tmp_game.build_and_place_player_ships(settings["agent_uses_dataset"])
+        tmp_game.pick_first_player()
+        tmp_game.set_phase_action()
+
+    if settings["show_boards"]:
+        show screen mas_battleship_ui(tmp_game)
+        if not test_agent_wins and not monika_wins:
+            show monika 1eua at t31
+            pause 0.5
+
+    python:
+        while not tmp_game.is_done():
+            tmp_game.game_loop()
+
+    if tmp_game.is_player_winner():
+        $ test_agent_wins += 1
+
+    elif tmp_game.is_monika_winner():
+        $ monika_wins += 1
+
+    else:
+        m 1esc "We're in an invalid state, it says player gave up. Aborting test."
+        $ iterations = 0
+
+    if iterations > 0:
+        if settings["show_boards"]:
+            pause 0.05
+        jump mas_battleship_run_simulation.loop
+
+    if settings["show_boards"]:
+        hide screen mas_battleship_ui
+        show monika at t11
+
+    m 1esa "We're done, statistics: test agent wins [test_agent_wins], my wins [monika_wins]."
+
+    m 3eua "Repeat?{nw}"
+    $ _history_list.pop()
+    menu:
+        m "Repeat?{fast}"
+
+        "Yes.":
+            jump mas_battleship_run_simulation
+
+        "No.":
+            pass
+
+    $ del iterations, settings, test_agent_wins, monika_wins, tmp_game
     return
 
 
@@ -360,6 +460,7 @@ label mas_battleship_game_end:
             m 1hua "Ehehe~"
 
     elif mas_battleship.game.did_player_giveup():
+        # TODO: this should be in the else path before, don't give Monika wins if 0 turns were made
         $ mas_battleship.increment_monika_wins()
 
         if mas_battleship.game.get_turn_count() == 0:
@@ -645,11 +746,12 @@ init -10 python in mas_battleship:
             self._grid_conflicts = [] # type: list[tuple[int, int]]
             self._should_render_heatmap = False
             self._is_instant_monika_turn = False
+            self._should_render_monika_ships = False
 
             self._ship_sprites_cache = {}
 
             self._player = Player()
-            self._monika = AIPlayer()
+            self._monika = AIPlayer(dataset=persistent._mas_game_battleship_player_ship_dataset)
 
         def pick_first_player(self):
             """
@@ -1050,6 +1152,13 @@ init -10 python in mas_battleship:
                 x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.MAIN_GRID_ORIGIN)
                 main_render.place(ship_sprite, x, y)
 
+            # Render Monika's ships
+            if self._should_render_monika_ships:
+                for ship in self._monika.iter_ships():
+                    ship_sprite = self._get_ship_sprite(ship)
+                    x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.TRACKING_GRID_ORIGIN)
+                    main_render.place(ship_sprite, x, y)
+
             # # # Render things that only relevant during the game
             if not self.is_in_preparation():
                 # Render Monika's ships
@@ -1281,6 +1390,9 @@ init -10 python in mas_battleship:
                 if ev.key == pygame.K_h:
                     self._should_render_heatmap ^= True
                     raise renpy.IgnoreEvent()
+                elif ev.key == pygame.K_o:
+                    self._should_render_monika_ships ^= True
+                    raise renpy.IgnoreEvent()
                 elif ev.key == pygame.K_i:
                     self._is_instant_monika_turn ^= True
                     raise renpy.IgnoreEvent()
@@ -1331,6 +1443,17 @@ init -10 python in mas_battleship:
             self._switch_turn()
             self._redraw_now()
 
+        def handle_player_turn(self):
+            """
+            Logic for playing Player turn
+            """
+            if self.is_monika_turn():
+                log_err("called Battleship.handle_player_turn, but it's Monika's turn")
+                return
+
+            # NOTE: We pretty much always want to start an interaction for stuff like mouse motion and whatnot
+            ui.interact(type="minigame")
+
         def register_shot(self, player, target_player, square):
             """
             Registers a shot and checks for win cond
@@ -1370,9 +1493,7 @@ init -10 python in mas_battleship:
             self._monika._update_heatmap(self._player.grid)
 
             if not self.is_done():
-                # NOTE: We don't check for player turn here to always start an interaction
-                # for stuff like mouse motion
-                ui.interact(type="minigame")
+                self.handle_player_turn()
 
         def visit(self):
             return [
@@ -2501,9 +2622,19 @@ init -10 python in mas_battleship:
             ships are from 2 to 5 squares long
             ships have spacing between them
         """
-        def __init__(self):
+        def __init__(self, dataset):
+            """
+            Constructor
+
+            IN:
+                dataset - dict[tuple[int, int], float] | None - dataset of player grid
+            """
             super(AIPlayer, self).__init__()
+            self.dataset = dataset # type: dict[tuple[int, int], float] | None
             self.heatmap = {} # type: dict[tuple[int, int], int]
+            # High weight means we rely more on where player puts their ships
+            # and rely less on the current state of the board (skip misses/hits/where a ship truly fits)
+            self.dataset_weight = 0.5
             self.dead_ships_squares = set() # type: set[tuple[int, int]]
 
         @staticmethod
@@ -2587,12 +2718,19 @@ init -10 python in mas_battleship:
                     heatmap - dict[tuple[int, int], int] - heatmap to update
                     squares - Sequence[tuple[int, int]] - tuple of x,y coordinates for the ship
                     amount - int - temp increase
+
+                OUT:
+                    int - total temp increment across all the squares
                 """
+                total = 0
                 for sqr in squares:
                     if sqr not in heatmap:
                         heatmap[sqr] = 0
                     if sqr not in self._hits:
                         heatmap[sqr] += amount
+                        total += amount
+
+                return total
 
             def is_ship_alive_at(square, grid):
                 """
@@ -2747,16 +2885,14 @@ init -10 python in mas_battleship:
                             squares = tuple(zip(range(col, col + ship_length), itertools.repeat(row, ship_length)))
                             amount = get_temp_increment(squares, enemy_grid, is_vertical=False)
                             if amount:
-                                increment_temp(self.heatmap, squares, amount)
-                                heatmap_sum += amount * ship_length
+                                heatmap_sum += increment_temp(self.heatmap, squares, amount)
 
                         if row + ship_length - 1 < enemy_grid.HEIGHT:
                             # Check vertical placement of the ship
                             squares = tuple(zip(itertools.repeat(col, ship_length), range(row, row+ship_length)))
                             amount = get_temp_increment(squares, enemy_grid, is_vertical=True)
                             if amount:
-                                increment_temp(self.heatmap, squares, amount)
-                                heatmap_sum += amount * ship_length
+                                heatmap_sum += increment_temp(self.heatmap, squares, amount)
 
             if not self.heatmap:
                 # In case all ships are dead, use 0'd heatmap
@@ -2765,12 +2901,9 @@ init -10 python in mas_battleship:
                     for row in range(Grid.HEIGHT)
                     for col in range(Grid.WIDTH)
                 }
-            elif heatmap_sum:
-                # High weight means we rely more on where player puts their ships
-                # and rely less on the current state of the board (skip misses/hits/where a ship truly fits)
-                weight = 0.5
+            elif heatmap_sum and self.dataset is not None:
                 # Otherwise enchance heatmap with the dataset we collected
-                dataset_sum = sum(persistent._mas_game_battleship_player_ship_dataset.values())
+                dataset_sum = sum(self.dataset.values())
                 if dataset_sum:
                     for coords, temp in self.heatmap.items():
                         if not temp:
@@ -2779,8 +2912,8 @@ init -10 python in mas_battleship:
                         # Normalise
                         temp = float(temp) / heatmap_sum
                         # Apply probabilities from the dataset
-                        dataset_temp = float(persistent._mas_game_battleship_player_ship_dataset[coords]) / dataset_sum
-                        self.heatmap[coords] = (temp*(1.0 - weight) + dataset_temp*weight) * 100
+                        dataset_temp = float(self.dataset[coords]) / dataset_sum
+                        self.heatmap[coords] = (temp*(1.0 - self.dataset_weight) + dataset_temp*self.dataset_weight) * 100
 
         def on_enemy_ship_destroyed(self, ship):
             """
@@ -2803,3 +2936,38 @@ init -10 python in mas_battleship:
                 coords = max_temp_coords[0]
 
             return coords
+
+
+    class BattleshipAITest(Battleship):
+        def __init__(self):
+            super(BattleshipAITest, self).__init__()
+
+            self._player = AIPlayer(dataset=None)
+            self._player.dataset_weight = 0.0
+            self._monika.dataset_weight = 0.5
+
+        def handle_player_turn(self):
+            if not self.is_in_action():
+                log_err("called BattleshipAITest.handle_player_turn while in {} phase, the game hasn't started yet".format(self._phase))
+                return
+
+            if self.is_monika_turn():
+                return
+
+            coords = self._player.pick_square_for_attack(self._monika)
+            if coords is None:
+                log_err("AIPlayer.pick_square_for_attack returned None")
+                self._switch_turn()
+                return
+
+            if self._player.has_shot_at(coords):
+                log_err("AIPlayer.pick_square_for_attack returned a square that Monika already shot in")
+                self._switch_turn()
+                return
+
+            if not self._is_instant_monika_turn:
+                renpy.pause(self.MONIKA_TURN_DURATION)
+
+            self.register_shot(self._player, self._monika, coords)
+            self._switch_turn()
+            self._redraw_now()
