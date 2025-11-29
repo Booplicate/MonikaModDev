@@ -2868,9 +2868,10 @@ init -10 python in mas_battleship:
             self.heatmap.clear()
 
             heatmap_sum = 0
-            # TODO: Is there any point of analysing every ship?
-            # Can't we skip the ships whose length we already handled? They don't seem to
-            # add any meaningful data
+            # NOTE: At first I wanted to consider only ships of unique length, but after a few tests,
+            # it seems like Monika would perform just slightly worse. So we will iterate through every alive ship,
+            # which is slower, but presumably gives better results. I'm not sure why this is the case,
+            # mathematically it shouldn't matter, perhaps it's just a random occasion and I didn't run enough tests?
             for ship in opponent_grid.iter_ships():
                 # Only count active ships
                 if not ship.is_alive():
@@ -2948,13 +2949,20 @@ init -10 python in mas_battleship:
             return coords
 
 
+    class TestAgentPlayer(AIPlayer):
+        """
+        AI player for test games vs Monika
+        """
+        def __init__(self):
+            super(TestAgentPlayer, self).__init__(None)
+
     class BattleshipAITest(Battleship):
+        """
+        Subclass for AI tests
+        """
         def __init__(self):
             super(BattleshipAITest, self).__init__()
-
-            self._player = AIPlayer(dataset=None)
-            self._player.dataset_weight = 0.0
-            self._monika.dataset_weight = 0.5
+            self._player = TestAgentPlayer()
 
         def handle_player_turn(self):
             if not self.is_in_action():
