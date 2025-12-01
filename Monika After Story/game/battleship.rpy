@@ -460,7 +460,7 @@ label mas_battleship_game_end:
             m 1hua "Ehehe~"
 
     elif mas_battleship.game.did_player_giveup():
-        if mas_battleship.game.get_turn_count() == 0:
+        if mas_battleship.game.get_turn_count() <= 1:
             m 2etc "But we didn't even get started."
             m 7eka "In any case, if you change your mind again, let me know."
             m 1ekb "I'm always happy to play a game with you."
@@ -590,14 +590,6 @@ init -10 python in mas_battleship:
         SUBMARINE = 2
         CRUISER = 3
         DESTROYER = 4
-
-    SHIP_TYPE_TO_LENGTH = {
-        ShipType.CARRIER: 5,
-        ShipType.BATTLESHIP: 4,
-        ShipType.SUBMARINE: 3,
-        ShipType.CRUISER: 3,
-        ShipType.DESTROYER: 2,
-    }
 
 
     def increment_monika_wins():
@@ -1007,7 +999,7 @@ init -10 python in mas_battleship:
                 weights = persistent._mas_game_battleship_player_ship_dataset
             else:
                 weights = None
-            self._player.grid.place_ships(Ship.build_ships(self.SHIP_PRESET_CLASSIC), weights=weights)
+            self._player.grid.place_ships(Ship.build_ships_from_preset(self.SHIP_PRESET_CLASSIC), weights=weights)
             self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
             return True
@@ -1017,7 +1009,7 @@ init -10 python in mas_battleship:
             Builds and places ships for monika
             """
             self._monika.grid.clear()
-            self._monika.grid.place_ships(Ship.build_ships(self.SHIP_PRESET_CLASSIC))
+            self._monika.grid.place_ships(Ship.build_ships_from_preset(self.SHIP_PRESET_CLASSIC))
 
         @classmethod
         def _grid_coords_to_screen_coords(cls, coords, grid_origin):
@@ -2019,21 +2011,26 @@ init -10 python in mas_battleship:
             def is_horizontal(cls, value):
                 return value in (cls.RIGHT, cls.LEFT)
 
-        def __init__(self, type_, length):
+        _SHIP_TYPE_TO_LENGTH = {
+            ShipType.CARRIER: 5,
+            ShipType.BATTLESHIP: 4,
+            ShipType.SUBMARINE: 3,
+            ShipType.CRUISER: 3,
+            ShipType.DESTROYER: 2,
+        }
+
+        def __init__(self, ship_type):
             """
             Constructor for new ship
 
             IN:
-                type_ - int - ship type
-                length - int - ship length
+                ship_type - int - ship type
             """
             self.bow_coords = (0, 0)
-            self._type = type_
-            self._length = length
+            self._type = ship_type
             self._orientation = self.Orientation.UP
-
-            self._health = length
             self.drag_coords = (0, 0)
+            self._health = self.length # Set last
 
         def __repr__(self):
             return "<{0}: (at: {1}, type: {2}, len: {3}, hp: {4})>".format(
@@ -2046,7 +2043,7 @@ init -10 python in mas_battleship:
 
         @property
         def length(self):
-            return self._length
+            return self._SHIP_TYPE_TO_LENGTH[self.type]
 
         @property
         def type(self):
@@ -2083,7 +2080,7 @@ init -10 python in mas_battleship:
         @staticmethod
         def _apply_rotation_matrix(point, cos, sin, origin_point, is_positive):
             """
-            Rotates a point, using rotation matrix
+            Rotates a point using rotation matrix
 
             IN:
                 point - tuple[int, int] - point coordinates
@@ -2103,7 +2100,7 @@ init -10 python in mas_battleship:
         @classmethod
         def _rotate_point(cls, point, angle, origin_point):
             """
-            Rotates a point, using rotation matrix
+            Rotates a point using rotation matrix
 
             IN:
                 point - tuple[int, int] - point coordinates
@@ -2113,9 +2110,9 @@ init -10 python in mas_battleship:
             # Get the rotation direction
             is_positive = angle >= 0
             angle = meth.radians(angle)
-            # Get cos and sin, we're using 90 degrees rotation and thus can safely floor them
-            cos = int(meth.cos(angle))
-            sin = int(meth.sin(angle))
+            # Get cos and sin, always round for safety since negative nums go up and -0.9(9) is 0, not -1
+            cos = int(round(meth.cos(angle)))
+            sin = int(round(meth.sin(angle)))
             # Rotate
             return cls._apply_rotation_matrix(
                 point=point,
@@ -2128,7 +2125,7 @@ init -10 python in mas_battleship:
         def _rotate_bow(self, angle, origin_point):
             """
             Rotates this ship's bow around the given origin
-            NOTE: this doesn't update the orientation and drag_point props, assuming these'll be set afterwards
+            NOTE: this doesn't update the orientation and drag_point props, assuming these will be set afterwards
 
             IN:
                 angle - int - angle to rotate by
@@ -2179,11 +2176,12 @@ init -10 python in mas_battleship:
             """
             Returns offset from where the player drags the ship to its bow
             """
-            offset = int(meth.hypot(self.bow_coords[0]-self.drag_coords[0], self.bow_coords[1]-self.drag_coords[1]))
-            # Check if we need to invert it
-            if self.orientation in (self.Orientation.LEFT, self.Orientation.UP):
-                offset *= -1
-            return offset
+            # Calculate the vector
+            offset = meth.hypot(self.bow_coords[0]-self.drag_coords[0], self.bow_coords[1]-self.drag_coords[1])
+            # Invert the vector if needed
+            angle = meth.radians(self.orientation)
+            offset *= meth.cos(angle) + meth.sin(angle)
+            return int(round(offset))
 
         def get_squares(self):
             """
@@ -2261,7 +2259,7 @@ init -10 python in mas_battleship:
             OUT:
                 Ship - new ship with the same params as this one
             """
-            ship = Ship(self.type, self.length)
+            ship = Ship(self.type)
             ship.bow_coords = self.bow_coords
             ship.orientation = self.orientation
             ship._health = self._health
@@ -2270,20 +2268,17 @@ init -10 python in mas_battleship:
             return ship
 
         @classmethod
-        def build_ships(cls, ship_preset):
+        def build_ships_from_preset(cls, ship_preset):
             """
             Builds multiple ships using the given set
 
             IN:
-                ship_preset - list[ShipType] - list of ship types to build
+                ship_preset - Iterable[ShipType] - iterable of ship types to build
 
             OUT:
                 list[Ship] - built ships
             """
-            return [
-                cls(ship_type, SHIP_TYPE_TO_LENGTH[ship_type])
-                for ship_type in ship_preset
-            ]
+            return [cls(ship_type) for ship_type in ship_preset]
 
 
     class Player(object):
