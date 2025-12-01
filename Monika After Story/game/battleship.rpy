@@ -10,6 +10,7 @@ default persistent._mas_game_battleship_player_ship_dataset = {
     for row in range(store.mas_battleship.Grid.HEIGHT)
     for col in range(store.mas_battleship.Grid.WIDTH)
 }
+default persistent._mas_pm_has_battleship_debug = False
 
 
 init 5 python:
@@ -46,7 +47,7 @@ label mas_battleship_show_player_dataset:
                 k: round(float(v) / sum(persistent._mas_game_battleship_player_ship_dataset.itervalues()) * 100, 2)
                 for k, v in persistent._mas_game_battleship_player_ship_dataset.iteritems()
             }
-        tmp_game._should_render_heatmap = True
+        tmp_game._debug_heatmap = True
 
     show monika 1eua at t31
     show screen mas_battleship_ui(tmp_game)
@@ -113,7 +114,7 @@ label mas_battleship_generate_heatmap_using_monte_carlo:
             k: round(float(v) / total * 100, 2)
             for k, v in counter.iteritems()
         }
-        tmp_game._should_render_heatmap = True
+        tmp_game._debug_heatmap = True
         tmp_game._player.grid.clear()
 
     show monika 1eua at t31
@@ -186,9 +187,10 @@ label mas_battleship_simulate_game.loop:
         tmp_game = mas_battleship.BattleshipAITest()
         if not settings["monika_uses_dataset"]:
             tmp_game._monika.dataset = None
-        tmp_game._should_render_heatmap = settings["show_heatmap"]
-        tmp_game._should_use_fast_turns = settings["fast_turns"]
-        tmp_game._should_render_monika_ships = settings["show_monika_ships"]
+        tmp_game._debug_heatmap = settings["show_heatmap"]
+        tmp_game._debug_no_quips = True
+        tmp_game._debug_no_pause = settings["fast_turns"]
+        tmp_game._debug_monika_ships = settings["show_monika_ships"]
         tmp_game.build_and_place_monika_ships()
         tmp_game.build_and_place_player_ships(settings["agent_uses_dataset"])
         tmp_game.pick_first_player()
@@ -737,9 +739,10 @@ init -10 python in mas_battleship:
             self._hovered_square = None
             self._dragged_ship = None
             self._grid_conflicts = [] # type: list[tuple[int, int]]
-            self._should_render_heatmap = False
-            self._should_use_fast_turns = False
-            self._should_render_monika_ships = False
+            self._debug_heatmap = False
+            self._debug_no_quips = False
+            self._debug_no_pause = False
+            self._debug_monika_ships = False
 
             self._ship_sprites_cache = {}
 
@@ -1146,7 +1149,7 @@ init -10 python in mas_battleship:
                 main_render.place(ship_sprite, x, y)
 
             # Render Monika's ships
-            if self._should_render_monika_ships:
+            if self._debug_monika_ships:
                 for ship in self._monika.iter_ships():
                     ship_sprite = self._get_ship_sprite(ship)
                     x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.TRACKING_GRID_ORIGIN)
@@ -1213,7 +1216,7 @@ init -10 python in mas_battleship:
                         (self._last_mouse_y - self.SQUARE_HEIGHT / 2 + y_offset)
                     )
 
-            if self._should_render_heatmap:
+            if self._debug_heatmap:
                 for coords, color in self._monika.get_heatmap_colors().iteritems():
                     heat_overlay = store.Solid(color.replace_opacity(0.8), xsize=32, ysize=32)
                     x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
@@ -1365,15 +1368,30 @@ init -10 python in mas_battleship:
             return None
 
         def _handle_debug_events(self, ev, x, y, st):
-            if ev.type == pygame.KEYDOWN and ev.mod == pygame.KMOD_NONE and renpy.config.developer:
+            if (
+                ev.type == pygame.KEYDOWN
+                and ev.mod == (pygame.KMOD_LALT | pygame.KMOD_RSHIFT)
+                and renpy.config.developer
+            ):
+                changed = False
                 if ev.key == pygame.K_h:
-                    self._should_render_heatmap ^= True
-                    raise renpy.IgnoreEvent()
-                elif ev.key == pygame.K_o:
-                    self._should_render_monika_ships ^= True
-                    raise renpy.IgnoreEvent()
-                elif ev.key == pygame.K_i:
-                    self._should_use_fast_turns ^= True
+                    self._debug_heatmap ^= True
+                    changed = True
+
+                elif ev.key == pygame.K_m:
+                    self._debug_monika_ships ^= True
+                    changed = True
+
+                elif ev.key == pygame.K_q:
+                    self._debug_no_quips ^= True
+                    changed = True
+
+                elif ev.key == pygame.K_p:
+                    self._debug_no_pause ^= True
+                    changed = True
+
+                if changed:
+                    persistent._mas_pm_has_battleship_debug = True
                     raise renpy.IgnoreEvent()
 
         def event(self, ev, x, y, st):
@@ -1423,12 +1441,14 @@ init -10 python in mas_battleship:
                 self._switch_turn()
                 return
 
-            if not self._should_use_fast_turns:
+            quip = None
+            if not self._debug_no_quips:
                 quip = self._monika.pick_turn_start_quip(self._player, coords)
                 if quip is not None:
                     self.monika_say(quip[1], quip[0])
-                else:
-                    renpy.pause(self.MONIKA_TURN_DURATION)
+
+            if quip is None and not self._debug_no_pause:
+                renpy.pause(self.MONIKA_TURN_DURATION)
 
             self.register_monika_shot(coords)
             self._switch_turn()
@@ -1471,12 +1491,12 @@ init -10 python in mas_battleship:
                         self.set_phase_done()
                         self.mark_monika_won()
 
-                    elif not self._should_use_fast_turns:
+                    elif not self._debug_no_quips:
                         quip = self._monika.pick_sunk_ship_quip(self._player, ship)
                         if quip is not None:
                             self.monika_say(quip[1], quip[0])
 
-                elif not self._should_use_fast_turns:
+                elif not self._debug_no_quips:
                     quip = self._monika.pick_hit_ship_quip(self._player, ship)
                     if quip is not None:
                         self.monika_say(quip[1], quip[0])
@@ -1511,7 +1531,7 @@ init -10 python in mas_battleship:
                         self.set_phase_done()
                         self.mark_player_won()
 
-                    elif not self._should_use_fast_turns:
+                    elif not self._debug_no_quips:
                         quip = self._monika.pick_lost_ship_quip(self._player, ship)
                         if quip is not None:
                             self.monika_say(quip[1], quip[0], should_invoke=True)
@@ -3144,7 +3164,7 @@ init -10 python in mas_battleship:
                 self._switch_turn()
                 return
 
-            if not self._should_use_fast_turns:
+            if not self._debug_no_pause:
                 renpy.pause(self.MONIKA_TURN_DURATION)
 
             self.register_player_shot(coords)
@@ -3154,7 +3174,7 @@ init -10 python in mas_battleship:
         def render(self, width, height, st, at):
             main_render = super(BattleshipAITest, self).render(width, height, st, at)
 
-            if self._should_render_heatmap:
+            if self._debug_heatmap:
                 for coords, color in self._player.get_heatmap_colors().iteritems():
                     color = color.replace_opacity(0.8)
                     heat_overlay = store.Solid(color, xsize=32, ysize=32)
