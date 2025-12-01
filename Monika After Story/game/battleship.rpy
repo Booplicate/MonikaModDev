@@ -43,8 +43,8 @@ label mas_battleship_show_player_dataset:
             tmp_game._monika.heatmap = dict(persistent._mas_game_battleship_player_ship_dataset)
         else:
             tmp_game._monika.heatmap = {
-                k: round(float(v) / sum(persistent._mas_game_battleship_player_ship_dataset.values()) * 100, 2)
-                for k, v in persistent._mas_game_battleship_player_ship_dataset.items()
+                k: round(float(v) / sum(persistent._mas_game_battleship_player_ship_dataset.itervalues()) * 100, 2)
+                for k, v in persistent._mas_game_battleship_player_ship_dataset.iteritems()
             }
         tmp_game._should_render_heatmap = True
 
@@ -96,20 +96,22 @@ label mas_battleship_generate_heatmap_using_monte_carlo:
 
     python:
         tmp_game = mas_battleship.Battleship()
-        counter = {}
+        counter = {
+            (x, y): 0
+            for y in range(mas_battleship.Grid.HEIGHT)
+            for x in range(mas_battleship.Grid.WIDTH)
+        }
 
         for _unused in range(iterations):
             tmp_game.build_and_place_player_ships(use_player_data)
 
-            for coords in tmp_game._player.grid.get_all_squares_with_ships():
-                if coords not in counter:
-                    counter[coords] = 0
+            for coords in tmp_game._player.grid.iter_squares_with_ships():
                 counter[coords] += 1
 
-        total = sum(counter.values())
+        total = sum(counter.itervalues())
         tmp_game._monika.heatmap = {
             k: round(float(v) / total * 100, 2)
-            for k, v in counter.items()
+            for k, v in counter.iteritems()
         }
         tmp_game._should_render_heatmap = True
         tmp_game._player.grid.clear()
@@ -620,7 +622,7 @@ init -10 python in mas_battleship:
         return round(float(get_player_wins()) / total_games, 3)
 
     def collect_player_data(game):
-        for coords in game._player.grid.get_all_squares_with_ships():
+        for coords in game._player.grid.iter_squares_with_ships():
             persistent._mas_game_battleship_player_ship_dataset[coords] += 1
 
 
@@ -681,8 +683,8 @@ init -10 python in mas_battleship:
             ShipType.CRUISER: Image(GAME_ASSETS_FOLDER + "ships/cruiser.png"),
             ShipType.DESTROYER: Image(GAME_ASSETS_FOLDER + "ships/destroyer.png"),
         }
-        _SHIP_SPRITES = list(SHIP_TYPE_TO_SPRITE.values())
-        # Used for sunk ships
+        _SHIP_SPRITES = list(SHIP_TYPE_TO_SPRITE.itervalues())
+        # Used for sunked ships
         GREYOUT_MATRIX = store.im.matrix.desaturate() * store.im.matrix.brightness(-0.25)
 
         SHIP_PRESET_CLASSIC = (
@@ -1212,7 +1214,7 @@ init -10 python in mas_battleship:
                     )
 
             if self._should_render_heatmap:
-                for coords, color in self._monika.get_heatmap_colors().items():
+                for coords, color in self._monika.get_heatmap_colors().iteritems():
                     heat_overlay = store.Solid(color.replace_opacity(0.8), xsize=32, ysize=32)
                     x, y = self._grid_coords_to_screen_coords(coords, self.MAIN_GRID_ORIGIN)
                     color_render = renpy.render(heat_overlay, width, height, st, at)
@@ -1244,7 +1246,7 @@ init -10 python in mas_battleship:
                     self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
                     self._redraw_now()
-                    return True
+                    raise renpy.IgnoreEvent()
 
                 # If the player's pressed the keybinding for rotating while hovering over a ship, rotate it
                 else:
@@ -1267,7 +1269,7 @@ init -10 python in mas_battleship:
                     self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
                     self._redraw_now()
-                    return True
+                    raise renpy.IgnoreEvent()
 
             # # # The player moves the mouse, we may need to update the screen
             elif ev.type == pygame.MOUSEMOTION:
@@ -1280,9 +1282,6 @@ init -10 python in mas_battleship:
                     self._hovered_square = coords
                     self._redraw_now()
                     self._update_screens()
-                    # NOTE: usually we want to pass mousemoution events to other dispalyable
-                    # but since we have to update screens here, this causes lag,
-                    # so we ignore the mousemoution if we used it for hover/unhover
                     raise renpy.IgnoreEvent()
 
             # # # The player clicks on a ship and starts dragging it
@@ -1301,7 +1300,7 @@ init -10 python in mas_battleship:
                 self._dragged_ship = ship
 
                 self._redraw_now()
-                return True
+                raise renpy.IgnoreEvent()
 
             # # # The player releases the mouse button and places the ship on the grid
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
@@ -1333,7 +1332,7 @@ init -10 python in mas_battleship:
                 self._dragged_ship = None
 
                 self._redraw_now()
-                return True
+                raise renpy.IgnoreEvent()
 
         def _handle_action_events(self, ev, x, y, st):
             # # # The player moves the mouse, we may need to update the screen for hover events
@@ -1343,9 +1342,6 @@ init -10 python in mas_battleship:
                     self._hovered_square = coords
                     self._redraw_now()
                     self._update_screens()
-                    # NOTE: usually we want to pass mousemoution events to other dispalyable
-                    # but since we have to update screens here, this causes lag,
-                    # so we ignore the mousemoution if we used it for hover/unhover
                     raise renpy.IgnoreEvent()
 
             # # # The player releases the mouse button potentially shooting
@@ -1368,16 +1364,8 @@ init -10 python in mas_battleship:
 
             return None
 
-        def event(self, ev, x, y, st):
-            """
-            Event handler
-            TODO: support playing with just a keyboard
-            """
-            # Update internal mouse coords
-            self._last_mouse_x = x
-            self._last_mouse_y = y
-
-            if ev.type == pygame.KEYDOWN and renpy.config.developer:
+        def _handle_debug_events(self, ev, x, y, st):
+            if ev.type == pygame.KEYDOWN and ev.mod == pygame.KMOD_NONE and renpy.config.developer:
                 if ev.key == pygame.K_h:
                     self._should_render_heatmap ^= True
                     raise renpy.IgnoreEvent()
@@ -1387,6 +1375,18 @@ init -10 python in mas_battleship:
                 elif ev.key == pygame.K_i:
                     self._should_use_fast_turns ^= True
                     raise renpy.IgnoreEvent()
+
+        def event(self, ev, x, y, st):
+            """
+            Event handler
+            TODO: support playing with just a keyboard
+            """
+            # Update internal mouse coords
+            self._last_mouse_x = x
+            self._last_mouse_y = y
+
+            # If this executes, it skips the event, no further processing happens
+            self._handle_debug_events(ev, x, y, st)
 
             # When disabled we only process mouse motions
             if not self.is_sensitive and ev.type != pygame.MOUSEMOTION:
@@ -1699,17 +1699,15 @@ init -10 python in mas_battleship:
 
             self._square_states[coords] = value
 
-        def get_all_squares_with_ships(self, only_alive=False):
+        def iter_squares_with_ships(self):
             """
             Returns all squares that have ships
 
             OUT:
                 Iterator[tuple[int, int]]
             """
-            for coords, state in self._square_states.items():
+            for coords, state in self._square_states.iteritems():
                 if state == self.SquareState.SHIP:
-                    if only_alive and not self.get_ship_at(coords).is_alive():
-                        continue
                     yield coords
 
         def get_ship_at(self, coords):
@@ -1723,7 +1721,7 @@ init -10 python in mas_battleship:
                 coords - tuple[int, int] - coordinates
 
             OUT:
-                Ship object or None if nothing found
+                Ship | None - the ship or None if nothing found
             """
             ships = self._ships_grid.get(coords, None)
             if ships:
@@ -2033,11 +2031,10 @@ init -10 python in mas_battleship:
             self._health = self.length # Set last
 
         def __repr__(self):
-            return "<{0}: (at: {1}, type: {2}, len: {3}, hp: {4})>".format(
+            return "<{0}: (at: {1}, type: {2}, hp: {4})>".format(
                 type(self).__name__,
                 self.bow_coords,
                 self.type,
-                self.length,
                 self.health,
             )
 
@@ -2576,7 +2573,7 @@ init -10 python in mas_battleship:
                     _("Ehehe, got this one~"),
                     _("Got your ship!"),
                     _("Sunk!"),
-                    _("Oops, sunked~"),
+                    _("Oops, sunk~"),
                 ),
             ),
         )
@@ -2600,6 +2597,7 @@ init -10 python in mas_battleship:
                     _("That's unfortunate..."),
                     _("Unlucky..."),
                     _("You got this one."),
+                    _("{i}*sigh*{/i}{w=0.2} Sunk!"),
                 ),
             ),
         )
@@ -2812,7 +2810,7 @@ init -10 python in mas_battleship:
                 int - value of the max temperature
             """
             max_temp = -1
-            for coords, temp in self.heatmap.items():
+            for coords, temp in self.heatmap.iteritems():
                 if temp > max_temp:
                     max_temp = temp
 
@@ -2830,7 +2828,7 @@ init -10 python in mas_battleship:
             """
             max_temp = -1
             max_temp_coords = []
-            for coords, temp in self.heatmap.items():
+            for coords, temp in self.heatmap.iteritems():
                 if temp > max_temp:
                     max_temp = temp
                     max_temp_coords[:] = [coords]
@@ -2855,7 +2853,7 @@ init -10 python in mas_battleship:
             max_temp = self._get_max_temp()
 
             color_map = {}
-            for coords, temp in self.heatmap.items():
+            for coords, temp in self.heatmap.iteritems():
                 if max_temp > 0:
                     fraction = float(temp) / float(max_temp)
                 else:
@@ -3074,9 +3072,9 @@ init -10 python in mas_battleship:
                 }
             elif heatmap_sum and self.dataset is not None:
                 # Otherwise enchance heatmap with the dataset we collected
-                dataset_sum = sum(self.dataset.values())
+                dataset_sum = sum(self.dataset.itervalues())
                 if dataset_sum:
-                    for coords, temp in self.heatmap.items():
+                    for coords, temp in self.heatmap.iteritems():
                         if not temp:
                             # 0 temp means we don't want to fire here at all
                             continue
@@ -3157,7 +3155,7 @@ init -10 python in mas_battleship:
             main_render = super(BattleshipAITest, self).render(width, height, st, at)
 
             if self._should_render_heatmap:
-                for coords, color in self._player.get_heatmap_colors().items():
+                for coords, color in self._player.get_heatmap_colors().iteritems():
                     color = color.replace_opacity(0.8)
                     heat_overlay = store.Solid(color, xsize=32, ysize=32)
                     x, y = self._grid_coords_to_screen_coords(coords, self.TRACKING_GRID_ORIGIN)
