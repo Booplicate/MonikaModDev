@@ -18,7 +18,7 @@ init 5 python:
             persistent.event_database,
             eventlabel="mas_battleship_show_player_dataset",
             category=["dev"],
-            prompt="SHOW BATTLESHIP PLAYER SHIP DATASET",
+            prompt="SHOW BATTLESHIP PLAYER DATASET",
             rules={"keep_idle_exp": None},
             pool=True,
             unlocked=True,
@@ -60,15 +60,15 @@ init 5 python:
     addEvent(
         Event(
             persistent.event_database,
-            eventlabel="mas_battleship_show_rng_placement_heatmap",
+            eventlabel="mas_battleship_generate_heatmap_using_monte_carlo",
             category=["dev"],
-            prompt="SHOW BATTLESHIP RANDOM SHIP PLACEMENT HEATMAP",
+            prompt="GENERATE BATTLESHIP HEATMAP USING MONTE CARLO",
             rules={"keep_idle_exp": None},
             pool=True,
             unlocked=True,
         )
     )
-label mas_battleship_show_rng_placement_heatmap:
+label mas_battleship_generate_heatmap_using_monte_carlo:
     $ iterations = store.mas_utils.tryparseint(
         renpy.input(
             "How many iterations would you like to run? Default 10000.",
@@ -77,12 +77,14 @@ label mas_battleship_show_rng_placement_heatmap:
         ).strip("\t\n\r"),
         10000,
     )
+    if iterations < 1:
+        return
 
     $ use_player_data = False
-    m 3eua "Should I use player data to influence the placement?{nw}"
+    m 3eua "Should I use player dataset to influence the placement?{nw}"
     $ _history_list.pop()
     menu:
-        m "Should I use player data to influence the placement?{fast}"
+        m "Should I use player dataset to influence the placement?{fast}"
 
         "Yes.":
             $ use_player_data = True
@@ -124,7 +126,7 @@ label mas_battleship_show_rng_placement_heatmap:
         m "Repeat?{fast}"
 
         "Yes.":
-            jump mas_battleship_show_rng_placement_heatmap
+            jump mas_battleship_generate_heatmap_using_monte_carlo
 
         "No.":
             pass
@@ -136,15 +138,15 @@ init 5 python:
     addEvent(
         Event(
             persistent.event_database,
-            eventlabel="mas_battleship_run_simulation",
+            eventlabel="mas_battleship_simulate_game",
             category=["dev"],
-            prompt="RUN BATTLESHIP SIMULATION",
+            prompt="SIMULATE BATTLESHIP GAME",
             rules={"keep_idle_exp": None},
             pool=True,
             unlocked=True,
         )
     )
-label mas_battleship_run_simulation:
+label mas_battleship_simulate_game:
     show monika 1eua
     $ iterations = store.mas_utils.tryparseint(
         renpy.input(
@@ -154,6 +156,8 @@ label mas_battleship_run_simulation:
         ).strip("\t\n\r"),
         10,
     )
+    if iterations < 1:
+        return
 
     $ buttons = [
         ("Show boards (slower)?", "show_boards", False, True, False),
@@ -174,7 +178,7 @@ label mas_battleship_run_simulation:
     if not settings["show_boards"]:
         m 1dsa "The game may hang, bear with me...{nw}"
 
-label mas_battleship_run_simulation.loop:
+label mas_battleship_simulate_game.loop:
     python:
         iterations -= 1
         tmp_game = mas_battleship.BattleshipAITest()
@@ -211,7 +215,7 @@ label mas_battleship_run_simulation.loop:
     if iterations > 0:
         if settings["show_boards"]:
             pause 0.05
-        jump mas_battleship_run_simulation.loop
+        jump mas_battleship_simulate_game.loop
 
     if settings["show_boards"]:
         hide screen mas_battleship_ui
@@ -225,7 +229,7 @@ label mas_battleship_run_simulation.loop:
         m "Repeat?{fast}"
 
         "Yes.":
-            jump mas_battleship_run_simulation
+            jump mas_battleship_simulate_game
 
         "No.":
             pass
@@ -342,7 +346,7 @@ init 5 python:
             persistent.event_database,
             eventlabel="mas_battleship_game_start",
             category=["dev"],
-            prompt="START DEMO BATTLESHIP",
+            prompt="START BATTLESHIP DEMO",
             rules={"keep_idle_exp": None},
             pool=True,
             unlocked=True,
@@ -1223,7 +1227,7 @@ init -10 python in mas_battleship:
                     main_render.subpixel_blit(color_render, (x, y))
 
                     temp = str(round(self._monika.heatmap[coords], 3))
-                    txt = store.Text(temp, color=(0, 0, 0, 255), size=12, outlines=(), alpha=0.8)
+                    txt = store.Text(temp, color=(0, 0, 0, 255), size=12, outlines=())
                     txt_render = renpy.render(txt, width, height, st, at)
                     main_render.subpixel_blit(txt_render, (x, y))
 
@@ -1423,7 +1427,7 @@ init -10 python in mas_battleship:
                 return
 
             if self._monika.has_shot_at(coords):
-                log_err("AIPlayer.pick_square_for_attack returned a square that Monika already shot in")
+                log_err("AIPlayer.pick_square_for_attack returned a square that Monika already shot at")
                 self._switch_turn()
                 return
 
@@ -1703,18 +1707,18 @@ init -10 python in mas_battleship:
 
             self._square_states[coords] = value
 
-        def get_all_squares_with_ships(self):
+        def get_all_squares_with_ships(self, only_alive=False):
             """
             Returns all squares that have ships
 
             OUT:
-                list[tuple[int, int]]
+                Iterator[tuple[int, int]]
             """
-            rv = [] # type: list[tuple[int, int]]
             for coords, state in self._square_states.items():
                 if state == self.SquareState.SHIP:
-                    rv.append(coords)
-            return rv
+                    if only_alive and not self.get_ship_at(coords).is_alive():
+                        continue
+                    yield coords
 
         def get_ship_at(self, coords):
             """
@@ -1818,7 +1822,7 @@ init -10 python in mas_battleship:
                 line_weight = 1.0
                 if weights is not None:
                     for square in line:
-                        line_weight += weights[square]
+                        line_weight *= weights[square]
                 available_lines_and_weights.append((line, line_weight))
 
             for column in range(self.WIDTH):
@@ -1868,7 +1872,7 @@ init -10 python in mas_battleship:
                 # Calculate weight for offset 0
                 weight = 1.0
                 for i in range(ship_length):
-                    weight += weights[line[i]]
+                    weight *= weights[line[i]]
                 offsets_and_weights.append((0, weight))
 
                 # Calculate weights for other offsets using 2 pointers
@@ -1946,6 +1950,10 @@ init -10 python in mas_battleship:
             Places ships on this grid at random positions and orientation
 
             NOTE: This does respect ship placement
+
+            ASSUMES:
+                1. the grid is empty
+                2. it's possible to fit all the given ships
 
             IN:
                 ships - list[Ship] - ships to place
@@ -3139,7 +3147,7 @@ init -10 python in mas_battleship:
                 return
 
             if self._player.has_shot_at(coords):
-                log_err("AIPlayer.pick_square_for_attack returned a square that Monika already shot in")
+                log_err("AIPlayer.pick_square_for_attack returned a square that test agent already shot at")
                 self._switch_turn()
                 return
 
@@ -3149,3 +3157,21 @@ init -10 python in mas_battleship:
             self.register_player_shot(coords)
             self._switch_turn()
             self._redraw_now()
+
+        def render(self, width, height, st, at):
+            main_render = super(BattleshipAITest, self).render(width, height, st, at)
+
+            if self._should_render_heatmap:
+                for coords, color in self._player.get_heatmap_colors().items():
+                    color = color.replace_opacity(0.8)
+                    heat_overlay = store.Solid(color, xsize=32, ysize=32)
+                    x, y = self._grid_coords_to_screen_coords(coords, self.TRACKING_GRID_ORIGIN)
+                    color_render = renpy.render(heat_overlay, width, height, st, at)
+                    main_render.subpixel_blit(color_render, (x, y))
+
+                    temp = str(round(self._player.heatmap[coords], 3))
+                    txt = store.Text(temp, color=(0, 0, 0, 255), size=12, outlines=())
+                    txt_render = renpy.render(txt, width, height, st, at)
+                    main_render.subpixel_blit(txt_render, (x, y))
+
+            return main_render
