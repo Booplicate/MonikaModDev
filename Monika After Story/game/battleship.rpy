@@ -109,8 +109,8 @@ label mas_battleship_show_rng_placement_heatmap:
             k: round(float(v) / total * 100, 2)
             for k, v in counter.items()
         }
-        # tmp_game._monika.heatmap = counter
         tmp_game._should_render_heatmap = True
+        tmp_game._player.grid.clear()
 
     show monika 1eua at t31
     show screen mas_battleship_ui(tmp_game)
@@ -181,7 +181,7 @@ label mas_battleship_run_simulation.loop:
         if not settings["monika_uses_dataset"]:
             tmp_game._monika.dataset = None
         tmp_game._should_render_heatmap = settings["show_heatmap"]
-        tmp_game._is_instant_monika_turn = settings["fast_turns"]
+        tmp_game._should_use_fast_turns = settings["fast_turns"]
         tmp_game._should_render_monika_ships = settings["show_monika_ships"]
         tmp_game.build_and_place_monika_ships()
         tmp_game.build_and_place_player_ships(settings["agent_uses_dataset"])
@@ -740,7 +740,7 @@ init -10 python in mas_battleship:
             self._dragged_ship = None
             self._grid_conflicts = [] # type: list[tuple[int, int]]
             self._should_render_heatmap = False
-            self._is_instant_monika_turn = False
+            self._should_use_fast_turns = False
             self._should_render_monika_ships = False
 
             self._ship_sprites_cache = {}
@@ -1364,7 +1364,7 @@ init -10 python in mas_battleship:
                 if self._player.has_shot_at(coords):
                     return None
 
-                self.register_shot(self._player, self._monika, coords)
+                self.register_player_shot(coords)
 
                 self._switch_turn()
                 self._redraw_now()
@@ -1381,7 +1381,7 @@ init -10 python in mas_battleship:
             self._last_mouse_x = x
             self._last_mouse_y = y
 
-            if ev.type == pygame.KEYDOWN:
+            if ev.type == pygame.KEYDOWN and renpy.config.developer:
                 if ev.key == pygame.K_h:
                     self._should_render_heatmap ^= True
                     raise renpy.IgnoreEvent()
@@ -1389,7 +1389,7 @@ init -10 python in mas_battleship:
                     self._should_render_monika_ships ^= True
                     raise renpy.IgnoreEvent()
                 elif ev.key == pygame.K_i:
-                    self._is_instant_monika_turn ^= True
+                    self._should_use_fast_turns ^= True
                     raise renpy.IgnoreEvent()
 
             # When disabled we only process mouse motions
@@ -1427,14 +1427,14 @@ init -10 python in mas_battleship:
                 self._switch_turn()
                 return
 
-            if not self._is_instant_monika_turn:
-                quip = self._monika.pick_turn_start_quip(self, coords)
+            if not self._should_use_fast_turns:
+                quip = self._monika.pick_turn_start_quip(self._player, coords)
                 if quip is not None:
                     self.monika_say(quip[1], quip[0])
                 else:
                     renpy.pause(self.MONIKA_TURN_DURATION)
 
-            self.register_shot(self._monika, self._player, coords)
+            self.register_monika_shot(coords)
             self._switch_turn()
             self._redraw_now()
 
@@ -1445,35 +1445,80 @@ init -10 python in mas_battleship:
             # NOTE: We pretty much always want to start an interaction for stuff like mouse motion and whatnot
             ui.interact(type="minigame")
 
-        def register_shot(self, player, target_player, square):
+        def register_monika_shot(self, square):
             """
-            Registers a shot and checks for win cond
+            Registers a shot from Monika and checks for her win cond
 
             IN:
-                player - Player - the shooter
-                target_player - Player - the target player
                 square - tuple[int, int] - the square to shoot at
 
             ASSUMES:
                 - the square is valid
-                - the player has the turn
                 - the game isn't over
             """
-            ship = target_player.grid.get_ship_at(square)
+            if not self.is_monika_turn():
+                log_err("called Battleship.register_monika_shot, but it's player's turn")
+                return
+
+            ship = self._player.grid.get_ship_at(square)
             if ship is None:
-                player.register_miss(square)
+                self._monika.register_miss(square)
 
             else:
-                player.register_hit(square)
+                self._monika.register_hit(square)
                 ship.take_hit()
+                self._monika.on_opponent_ship_hit(ship)
                 if not ship.is_alive():
-                    player.on_opponent_ship_destroyed(ship)
-                    if target_player.has_lost_all_ships():
+                    self._monika.on_opponent_ship_destroyed(ship)
+
+                    if self._player.has_lost_all_ships():
                         self.set_phase_done()
-                        if self.is_monika_turn():
-                            self.mark_monika_won()
-                        else:
-                            self.mark_player_won()
+                        self.mark_monika_won()
+
+                    elif not self._should_use_fast_turns:
+                        quip = self._monika.pick_sunk_ship_quip(self._player, ship)
+                        if quip is not None:
+                            self.monika_say(quip[1], quip[0])
+
+                elif not self._should_use_fast_turns:
+                    quip = self._monika.pick_hit_ship_quip(self._player, ship)
+                    if quip is not None:
+                        self.monika_say(quip[1], quip[0])
+
+        def register_player_shot(self, square):
+            """
+            Registers a shot from the player and checks for their win cond
+
+            IN:
+                square - tuple[int, int] - the square to shoot at
+
+            ASSUMES:
+                - the square is valid
+                - the game isn't over
+            """
+            if not self.is_player_turn():
+                log_err("called Battleship.register_player_shot, but it's Monika's turn")
+                return
+
+            ship = self._monika.grid.get_ship_at(square)
+            if ship is None:
+                self._player.register_miss(square)
+
+            else:
+                self._player.register_hit(square)
+                ship.take_hit()
+                self._player.on_opponent_ship_hit(ship)
+                if not ship.is_alive():
+                    self._player.on_opponent_ship_destroyed(ship)
+
+                    if self._monika.has_lost_all_ships():
+                        self.set_phase_done()
+                        self.mark_player_won()
+
+                    elif not self._should_use_fast_turns:
+                        quip = self._monika.pick_lost_ship_quip(self._player, ship)
+                        if quip is not None:
+                            self.monika_say(quip[1], quip[0], should_invoke=True)
 
         def game_loop(self):
             """
@@ -2342,6 +2387,15 @@ init -10 python in mas_battleship:
             """
             return iter(self._misses)
 
+        def on_opponent_ship_hit(self, ship):
+            """
+            Callback should be called when we hit a ship
+
+            IN:
+                ship - Ship - the ship we hit
+            """
+            pass
+
         def on_opponent_ship_destroyed(self, ship):
             """
             Callback should be called when we destroyed a ship with one of the shots
@@ -2499,7 +2553,6 @@ init -10 python in mas_battleship:
                 ),
             ),
         )
-
         # Monika announces where she shoots next
         TURN_START_SHOT_ANNOUNCE = _QuipSet(
             _Quip(
@@ -2512,28 +2565,41 @@ init -10 python in mas_battleship:
             ),
         )
 
-        # LOST_SHIP_NORM = _QuipSet(
-        #     _Quip(
-        #         exprs=("2etp", "2rtp"),
-        #         lines=(
-        #             _("Aww..."),
-        #             _("That's unfortunate..."),
-        #             _("Unlucky..."),
-        #         ),
-        #     ),
-        # )
+        # Monika sunked first ship
+        SUNK_SHIP_NORM = _QuipSet(
+            _Quip(
+                exprs=("1efu", "2efu", "1tfu", "2tfu", "1huu", "2huu"),
+                lines=(
+                    _("Ehehe, got this one~"),
+                    _("Got your ship!"),
+                    _("Sunk!"),
+                    _("Oops, sunked~"),
+                ),
+            ),
+        )
+        # Monika sunked a few ships
+        SUNK_SHIP_MULTIPLE = _QuipSet(
+            _Quip(
+                exprs=("1efu", "2efu", "1tfu", "2tfu", "1huu", "2huu"),
+                lines=(
+                    _("Another one goes~"),
+                    _("Another one!"),
+                    _("Looks like you lost another one~"),
+                ),
+            ),
+        )
 
-        # SUNK_SHIP_NORM = _QuipSet(
-        #     _Quip(
-        #         exprs=("1efu", "21efu", "1tfu", "2tfu", "1huu", "2huu"),
-        #         lines=(
-        #             _("Ehehe~"),
-        #             _("There we go~"),
-        #             _("What was that?~"),
-        #             _("Oops~"),
-        #         ),
-        #     ),
-        # )
+        LOST_SHIP_NORM = _QuipSet(
+            _Quip(
+                exprs=("2etp", "2rtp"),
+                lines=(
+                    _("Aww..."),
+                    _("That's unfortunate..."),
+                    _("Unlucky..."),
+                    _("You got this one."),
+                ),
+            ),
+        )
 
         def __init__(self):
             """
@@ -2541,6 +2607,7 @@ init -10 python in mas_battleship:
             """
             super(BaseAIPlayer, self).__init__()
             self._turns_without_quip = 0
+            self._targeting_ship_down = False
 
         def _pick_quip(self, quip, should_escape=False):
             """
@@ -2562,30 +2629,52 @@ init -10 python in mas_battleship:
 
             return (expr, dlg + suffix)
 
-        def pick_turn_start_quip(self, game, next_attack_coords):
+        def _should_do_quip(self):
+            """
+            Checks if we should say a quip
+
+            ASSUMES:
+                the quip will be said if this method returns True,
+                this is because it mutates the inner state every time it's called
+
+            OUT:
+                bool
+            """
+            if (
+                # 20% if didn't say anything last 6 turns
+                (self._turns_without_quip >= 6 and random.random() > 0.2)
+                # 10% otherwise
+                or random.random() > 0.1
+            ):
+                self._turns_without_quip += 1
+                return False
+
+            self._turns_without_quip = 0
+            return True
+
+        def pick_turn_start_quip(self, opponent, next_attack_coords):
             """
             Returns a quip for Monika's turn start
 
             IN:
-                game - Battleship - the game object
+                opponent - Player - the other player
                 next_attack_coords - tuple[int, int] - coords for the next Monika's shot
 
             OUT:
                 tuple[str, str] | None - the expression and the line or None
             """
-            if (
-                # 10% if didn't say anything last 7 turns
-                (self._turns_without_quip >= 7 and random.random() > 0.1)
-                # 5% otherwise
-                or random.random() > 0.05
-            ):
-                self._turns_without_quip += 1
+            if self._targeting_ship_down:
+                # We don't say anything if we're killing a ship,
+                # it looks weird to say "where's your ship" while actively shooting at it
+                # However if in the future we get a separete quip for that, we could move this check down
+                # and use that quip instead of silence
                 return None
 
-            self._turns_without_quip = 0
+            if not self._should_do_quip():
+                return None
 
-            player_ships_count = game._player.get_total_alive_ships()
-            monika_ships_count = game._monika.get_total_alive_ships()
+            player_ships_count = opponent.get_total_alive_ships()
+            monika_ships_count = self.get_total_alive_ships()
             ship_diff = player_ships_count - monika_ships_count
 
             if ship_diff >= 2 and monika_ships_count <= 2 and random.random() > 0.15:
@@ -2596,13 +2685,70 @@ init -10 python in mas_battleship:
 
             if random.random() < 0.1:
                 expr, what = self._pick_quip(self.TURN_START_SHOT_ANNOUNCE, should_escape=True)
-                what = what.format(square=game.square_coords_to_human_readable(next_attack_coords))
+                what = what.format(square=Battleship.square_coords_to_human_readable(next_attack_coords))
                 return (expr, what)
 
             if ship_diff <= -1 and monika_ships_count >= 2:
                 return self._pick_quip(self.TURN_START_TEASE)
 
             return self._pick_quip(self.TURN_START_NORM)
+
+        def pick_hit_ship_quip(self, opponent, ship):
+            """
+            Returns a quip for when Monika hit a ship with her shot
+
+            IN:
+                opponent - Player - the other player
+                ship - Ship - ship that got hit
+
+            OUT:
+                tuple[str, str] | None - the expression and the line or None
+            """
+            if not self._should_do_quip():
+                return None
+
+        def pick_sunk_ship_quip(self, opponent, ship):
+            """
+            Returns a quip for when Monika has sunked a ship
+
+            IN:
+                opponent - Player - the other player
+                ship - Ship - sunked ship
+
+            OUT:
+                tuple[str, str] | None - the expression and the line or None
+            """
+            if not self._should_do_quip():
+                return None
+
+            if opponent.grid.total_ships != opponent.get_total_alive_ships() and random.random() < 0.4:
+                return self._pick_quip(self.SUNK_SHIP_MULTIPLE)
+
+            return self._pick_quip(self.SUNK_SHIP_NORM)
+
+        def pick_lost_ship_quip(self, opponent, ship):
+            """
+            Returns a quip for when the player sunk Monika's ship
+
+            IN:
+                opponent - Player - the other player
+                ship - Ship - sunked ship
+
+            OUT:
+                tuple[str, str] | None - the expression and the line or None
+            """
+            if not self._should_do_quip():
+                return None
+
+            return self._pick_quip(self.LOST_SHIP_NORM)
+
+        def on_opponent_ship_hit(self, ship):
+            super(BaseAIPlayer, self).on_opponent_ship_hit(ship)
+            self._targeting_ship_down = True
+
+        def on_opponent_ship_destroyed(self, ship):
+            super(BaseAIPlayer, self).on_opponent_ship_destroyed(ship)
+            self._targeting_ship_down = False
 
         def pick_square_for_attack(self, opponent):
             """
@@ -2938,10 +3084,14 @@ init -10 python in mas_battleship:
                         self.heatmap[coords] = (temp*(1.0 - self.dataset_weight) + dataset_temp*self.dataset_weight) * 100
 
         def on_opponent_ship_destroyed(self, ship):
+            super(AIPlayer, self).on_opponent_ship_destroyed(ship)
+
             for square in itertools.chain(*ship.get_squares()):
                 self.dead_ships_squares.add(square)
 
         def on_game_loop_cycle(self, opponent):
+            super(AIPlayer, self).on_game_loop_cycle(opponent)
+
             if renpy.config.developer:
                 # This is slow and only used for debugging
                 self._update_heatmap(opponent.grid)
@@ -2993,9 +3143,9 @@ init -10 python in mas_battleship:
                 self._switch_turn()
                 return
 
-            if not self._is_instant_monika_turn:
+            if not self._should_use_fast_turns:
                 renpy.pause(self.MONIKA_TURN_DURATION)
 
-            self.register_shot(self._player, self._monika, coords)
+            self.register_player_shot(coords)
             self._switch_turn()
             self._redraw_now()
