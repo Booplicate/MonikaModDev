@@ -2364,35 +2364,35 @@ init -10 python in mas_battleship:
 
             return True
 
-        def register_hit(self, coords):
+        def register_hit(self, square):
             """
             Adds a successful hit for this player
 
             IN:
-                coords - a tuple of x and y coordinates
+                square - tuple[int, int] - x and y coordinates
             """
-            self._hits.add(coords)
+            self._hits.add(square)
 
-        def register_miss(self, coords):
+        def register_miss(self, square):
             """
             Adds a "successful" miss for this player
 
             IN:
-                coords - a tuple of x and y coordinates
+                square - tuple[int, int] - x and y coordinates
             """
-            self._misses.add(coords)
+            self._misses.add(square)
 
-        def has_shot_at(self, coords):
+        def has_shot_at(self, square):
             """
             Returns True if this player has shot at the given coordinates
 
             IN:
-                coords - a tuple of x and y coordinates
+                square - tuple[int, int] - x and y coordinates
 
             OUT:
                 bool
             """
-            return coords in self._misses or coords in self._hits
+            return square in self._misses or square in self._hits
 
         def total_hits(self):
             return len(self._hits)
@@ -2816,11 +2816,36 @@ init -10 python in mas_battleship:
             """
             super(AIPlayer, self).__init__()
             self.dataset = dataset # type: dict[tuple[int, int], int] | None
-            self.heatmap = {} # type: dict[tuple[int, int], int]
+            self.heatmap = {} # type: dict[tuple[int, int], int|float]
             # High weight means we rely more on where player puts their ships
             # and rely less on the current state of the board (skip misses/hits/where a ship truly fits)
             self.dataset_weight = 0.5
             self.dead_ships_squares = set() # type: set[tuple[int, int]]
+            # We split the board into 2 types of squares
+            self._remaining_white_squares = Grid.WIDTH * Grid.HEIGHT // 2
+            self._remaining_black_squares = self._remaining_white_squares
+
+        def _is_white_square(self, square):
+            x, y = square
+            is_x_even = x % 2 == 0
+            is_y_even = y % 2 == 0
+            return not (is_x_even ^ is_y_even)
+
+        def register_hit(self, square):
+            super(AIPlayer, self).register_hit(square)
+
+            if self._is_white_square(square):
+                self._remaining_white_squares -= 1
+            else:
+                self._remaining_black_squares -= 1
+
+        def register_miss(self, square):
+            super(AIPlayer, self).register_miss(square)
+
+            if self._is_white_square(square):
+                self._remaining_white_squares -= 1
+            else:
+                self._remaining_black_squares -= 1
 
         @staticmethod
         def _interpolate_num(a, b, f):
@@ -3132,17 +3157,40 @@ init -10 python in mas_battleship:
                 # This is slow and only used for debugging
                 self._update_heatmap(opponent.grid)
 
+        def _pick_best_square_from_list(self, squares):
+            """
+            Selects the best square from the given list
+
+            IN:
+                Sequence[tuple[int, int]] - list of grid squares
+
+            OUT:
+                tuple[int, int]
+            """
+            if len(squares) == 1:
+                return squares[0]
+
+            # square = random.choice(squares)
+            should_focus_white = self._remaining_white_squares <= self._remaining_black_squares
+            filtered_squares = [
+                square
+                for square in squares
+                # If we're focusing white, filter out black, and vice versa
+                if not (should_focus_white ^ self._is_white_square(square))
+            ]
+            if filtered_squares:
+                # If we have any appropriate squares to shoot, we use them, otherwise shoot whatever we can
+                squares = filtered_squares
+
+            if len(squares) == 1:
+                return squares[0]
+
+            return random.choice(squares)
+
         def pick_square_for_attack(self, opponent):
             self._update_heatmap(opponent.grid)
-
             max_temp_coords = self._get_max_temp_squares()
-            if len(max_temp_coords) > 1:
-                # TODO select using checkerboard
-                coords = random.choice(max_temp_coords)
-            else:
-                coords = max_temp_coords[0]
-
-            return coords
+            return self._pick_best_square_from_list(max_temp_coords)
 
 
     class TestAgentPlayer(AIPlayer):
@@ -3151,6 +3199,11 @@ init -10 python in mas_battleship:
         """
         def __init__(self):
             super(TestAgentPlayer, self).__init__(None)
+
+        # def _pick_best_square_from_list(self, squares):
+        #     if len(squares) == 1:
+        #         return squares[0]
+        #     return random.choice(squares)
 
     class BattleshipAITest(Battleship):
         """
@@ -3168,13 +3221,13 @@ init -10 python in mas_battleship:
             if self.is_monika_turn():
                 return
 
-            coords = self._player.pick_square_for_attack(self._monika)
-            if coords is None:
+            square = self._player.pick_square_for_attack(self._monika)
+            if square is None:
                 log_err("AIPlayer.pick_square_for_attack returned None")
                 self._switch_turn()
                 return
 
-            if self._player.has_shot_at(coords):
+            if self._player.has_shot_at(square):
                 log_err("AIPlayer.pick_square_for_attack returned a square that test agent already shot at")
                 self._switch_turn()
                 return
@@ -3182,9 +3235,8 @@ init -10 python in mas_battleship:
             if not self._debug_no_pause:
                 renpy.pause(self.MONIKA_TURN_DURATION)
 
-            self.register_player_shot(coords)
+            self.register_player_shot(square)
             self._switch_turn()
-            self._redraw_now()
 
         def render(self, width, height, st, at):
             main_render = super(BattleshipAITest, self).render(width, height, st, at)
