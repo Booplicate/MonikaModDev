@@ -603,6 +603,8 @@ init -10 python in mas_battleship:
 
     def increment_player_wins():
         persistent._mas_game_battleship_wins["Player"] += 1
+        if not persistent._mas_ever_won["battleship"]:
+            persistent._mas_ever_won["battleship"] = True
 
     def increment_player_surrenders():
         persistent._mas_game_battleship_abandoned += 1
