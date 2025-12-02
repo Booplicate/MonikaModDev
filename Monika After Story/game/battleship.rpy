@@ -304,7 +304,7 @@ screen mas_battleship_ui(game):
                             Function(game.mark_player_gaveup),
                             Function(game.set_phase_done),
                         ]
-                        sensitive not game.is_in_preparation() and not game.is_done()
+                        sensitive not game.is_done()
 
         add game:
             xanchor 1.0
@@ -758,7 +758,7 @@ init -10 python in mas_battleship:
             self._debug_no_pause = False
             self._debug_monika_ships = False
 
-            self._ship_sprites_cache = {}
+            self._ship_sprites_cache = {} # type: dict[tuple[ShipType, Ship.Orientation, bool], renpy.Displayable]
 
             self._player = Player()
             self._monika = AIPlayer(dataset=persistent._mas_game_battleship_player_ship_dataset)
@@ -1253,8 +1253,6 @@ init -10 python in mas_battleship:
                     else:
                         self._dragged_ship.orientation += 90
 
-                    self._grid_conflicts[:] = self._player.grid.get_conflicts()
-
                     self._redraw_now()
                     raise renpy.IgnoreEvent()
 
@@ -1273,9 +1271,8 @@ init -10 python in mas_battleship:
                     else:
                         angle = 90
 
-                    self._player.grid.remove_ship(ship)
                     ship.rotate(angle, coords)
-                    self._player.grid.place_ship(ship)
+                    self._player.grid.update()
                     self._grid_conflicts[:] = self._player.grid.get_conflicts()
 
                     self._redraw_now()
@@ -1369,7 +1366,6 @@ init -10 python in mas_battleship:
                 self.register_player_shot(coords)
 
                 self._switch_turn()
-                self._redraw_now()
                 return True
 
             return None
@@ -1459,7 +1455,6 @@ init -10 python in mas_battleship:
 
             self.register_monika_shot(coords)
             self._switch_turn()
-            self._redraw_now()
 
         def handle_player_turn(self):
             """
@@ -1486,11 +1481,18 @@ init -10 python in mas_battleship:
             ship = self._player.grid.get_ship_at(square)
             if ship is None:
                 self._monika.register_miss(square)
+                self._redraw_now()
 
             else:
                 self._monika.register_hit(square)
                 ship.take_hit()
+
+                # Redraw here after adding hit/miss and changing ship hp,
+                # so if Monika reacts, we can see the updated state of the board
+                self._redraw_now()
+
                 self._monika.on_opponent_ship_hit(ship)
+
                 if not ship.is_alive():
                     self._monika.on_opponent_ship_destroyed(ship)
 
@@ -1526,11 +1528,16 @@ init -10 python in mas_battleship:
             ship = self._monika.grid.get_ship_at(square)
             if ship is None:
                 self._player.register_miss(square)
+                self._redraw_now()
 
             else:
                 self._player.register_hit(square)
                 ship.take_hit()
+
+                self._redraw_now()
+
                 self._player.on_opponent_ship_hit(ship)
+
                 if not ship.is_alive():
                     self._player.on_opponent_ship_destroyed(ship)
 
@@ -1619,20 +1626,17 @@ init -10 python in mas_battleship:
             """
             return iter(self._ships)
 
-        def clear(self, clear_grid=True, clear_map=True):
+        def clear(self):
             """
             Clears this grid
             """
-            if clear_grid:
-                for coords in self._square_states:
-                    self._square_states[coords] = self.SquareState.EMPTY
+            for coords in self._square_states:
+                self._square_states[coords] = self.SquareState.EMPTY
 
-            if clear_map:
-                for ships in self._ships_grid.itervalues():
-                    ships[:] = []
+            for ships in self._ships_grid.itervalues():
+                ships[:] = []
 
-                # If we clear the map, we must clear the main list too
-                self._ships[:] = []
+            self._ships[:] = []
 
         def is_within(self, coords):
             """
@@ -1785,10 +1789,12 @@ init -10 python in mas_battleship:
             """
             Goes through this grid and sets its squares again
             """
-            self.clear(clear_map=False)
+            ships = tuple(self._ships)
 
-            for ship in self._ships:
-                self.place_ship(ship, add_to_map=False)
+            self.clear()
+
+            for ship in ships:
+                self.place_ship(ship)
 
         def remove_ship(self, ship):
             """
@@ -1909,7 +1915,7 @@ init -10 python in mas_battleship:
 
             return line[offset]
 
-        def place_ship(self, ship, add_to_map=True):
+        def place_ship(self, ship):
             """
             Places a ship at the coordinates of its bow,
             sets the appropriate state for the squares under the ship and adds
@@ -1919,8 +1925,6 @@ init -10 python in mas_battleship:
 
             IN:
                 ship - ship to place
-                add_to_map - whether we add this ship to the ship map or we do not
-                    (Default: True)
             """
             ship_squares, spacing_squares = ship.get_squares()
 
@@ -1940,10 +1944,9 @@ init -10 python in mas_battleship:
 
                 self._set_square_at(square, square_state)
 
-                if add_to_map:
-                    # If the ship was placed incorrectly, then its coords may be out of this grid
-                    if square in self._ships_grid:
-                        self._ships_grid[square].append(ship)
+                # If the ship was placed incorrectly, then its coords may be out of this grid
+                if square in self._ships_grid:
+                    self._ships_grid[square].append(ship)
 
             for square in spacing_squares:
                 # If empty, set spacing
@@ -1958,9 +1961,8 @@ init -10 python in mas_battleship:
 
                 self._set_square_at(square, square_state)
 
-            if add_to_map:
-                # Also add to the main list
-                self._ships.append(ship)
+            # Also add to the main list
+            self._ships.append(ship)
 
         def place_ships(self, ships, weights=None):
             """
@@ -2670,9 +2672,9 @@ init -10 python in mas_battleship:
             OUT:
                 bool
             """
-            # 15% if didn't say anything last 6 turns
+            # 13% if didn't say anything last 6 turns
             if self._turns_without_quip >= 6:
-                chance = 0.15
+                chance = 0.13
             # 3% if did a quip last turn
             elif self._turns_without_quip == 0:
                 chance = 0.03
