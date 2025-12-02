@@ -244,20 +244,83 @@ label mas_battleship_simulate_game.loop:
     return
 
 
+style mas_battleship_main_vbox is vbox:
+    xalign 1.0
+    xoffset -mas_battleship.Battleship.GRID_SPACING
+    yalign 0.0
+    yoffset mas_battleship.Battleship.GRID_SPACING
+    xmaximum 2*mas_battleship.Battleship.GRID_WIDTH + mas_battleship.Battleship.GRID_SPACING
+    ymaximum config.screen_height
+    xfill False
+    yfill False
+    spacing mas_battleship.Battleship.GRID_SPACING
+
+style mas_battleship_top_vbox is vbox:
+    spacing mas_battleship.Battleship.GRID_SPACING
+
+style mas_battleship_current_turn_frame is frame:
+    xalign 0.0
+    xminimum 200
+
+style mas_battleship_text is text
+
+style mas_battleship_text_dark is text:
+    color "#FD5BA2"
+
+style mas_battleship_top_buttons_frame is frame:
+    xalign 1.0
+
+style mas_battleship_top_buttons_hbox is hbox:
+    spacing 0
+
+style mas_battleship_game_frame is frame:
+    background None
+    padding (0, 0, 0, 0)
+    xsize mas_battleship.Battleship.GRID_WIDTH * 2 + mas_battleship.Battleship.GRID_SPACING
+    ysize mas_battleship.Battleship.GRID_HEIGHT
+    xalign 0.0
+
+style mas_battleship_instruction_frame is frame:
+    xalign 1.0
+    xsize mas_battleship.Battleship.GRID_WIDTH
+    ysize mas_battleship.Battleship.GRID_HEIGHT
+
+style mas_battleship_instruction_vbox is vbox:
+    spacing 15
+    align (0.5, 0.5)
+
+style mas_battleship_instruction_text is text:
+    xalign 0.5
+    text_align 0.5
+
+style mas_battleship_instruction_text_dark is text:
+    xalign 0.5
+    text_align 0.5
+    color "#FD5BA2"
+
+style mas_battleship_scoreboard_frame is frame:
+    background None
+    padding (0, 0, 0, 0)
+    # HACK: without ymaximum this frame keeps expanding, even though it knows its children size and had yfill False
+    # probably a bug in renpy
+    ymaximum 0
+    yfill False
+    xalign 0.0
+
+style mas_battleship_player_score_frame is frame:
+    xalign 0.0
+    xminimum 132
+
+style mas_battleship_monika_score_frame is frame:
+    xalign 0.0
+    xoffset mas_battleship.Battleship.GRID_WIDTH + mas_battleship.Battleship.GRID_SPACING
+    xminimum 132
+
 screen mas_battleship_ui(game):
     layer "minigames"
 
     vbox:
-        xanchor 1.0
-        xpos 1.0
-        xoffset -mas_battleship.Battleship.GRID_SPACING
-        yalign 0.0
-        yoffset mas_battleship.Battleship.GRID_SPACING
-        xmaximum 2*mas_battleship.Battleship.GRID_WIDTH + mas_battleship.Battleship.GRID_SPACING
-        ymaximum config.screen_height
-        xfill False
-        yfill False
-        spacing mas_battleship.Battleship.GRID_SPACING
+        style "mas_battleship_main_vbox"
 
         #         vbox:
         #             text "Score: 700-700"
@@ -265,86 +328,97 @@ screen mas_battleship_ui(game):
         #             text "Best Grade: 100000"
 
         vbox:
-            spacing mas_battleship.Battleship.GRID_SPACING
+            style "mas_battleship_top_vbox"
 
             frame:
-                xanchor 0.0
-                xpos 0.0
-                xminimum 200
+                style "mas_battleship_current_turn_frame"
 
                 vbox:
                     python:
                         if game.is_player_turn():
                             turn = store.player
                         else:
-                            turn = "Monika"
+                            turn = _("Monika")
 
                         target = game.get_hovering_square()
 
-                    text "Turn: [turn]"
-                    text "Target: [target]"
+                    text _("Turn: [turn]"):
+                        style "mas_battleship_text"
+                    text _("Target: [target]"):
+                        style "mas_battleship_text"
 
             frame:
-                xanchor 1.0
-                xpos 1.0
+                style "mas_battleship_top_buttons_frame"
 
                 hbox:
-                    spacing 0
+                    style "mas_battleship_top_buttons_hbox"
 
-                    textbutton "Ready":
+                    textbutton _("Ready"):
                         action Function(game.set_phase_action)
                         sensitive game.is_sensitive and game.is_in_preparation() and game.can_start_action()
 
-                    textbutton "Randomize":
+                    textbutton _("Randomize"):
                         action Function(game.build_and_place_player_ships)
                         sensitive game.is_sensitive and game.is_in_preparation()
 
-                    textbutton "Give up":
+                    textbutton _("Give up"):
                         action [
                             Function(game.mark_player_gaveup),
                             Function(game.set_phase_done),
                         ]
                         sensitive not game.is_done()
 
-        add game:
-            xanchor 1.0
-            xpos 1.0
+        frame:
+            style "mas_battleship_game_frame"
+
+            add game:
+                xalign 1.0
+
+            if game.is_in_preparation():
+                frame:
+                    style "mas_battleship_instruction_frame"
+
+                    vbox:
+                        style "mas_battleship_instruction_vbox"
+
+                        text _("Click and drag to move a ship"):
+                            style "mas_battleship_instruction_text"
+                        text _("Press {i}R{/i} or {i}Shift{/i}+{i}R{/i} to rotate a ship"):
+                            style "mas_battleship_instruction_text"
+                        text _("Press {i}Randomize{/i} to reposition the ships"):
+                            style "mas_battleship_instruction_text"
+                        text _("Press {i}Ready{/i} to start the game"):
+                            style "mas_battleship_instruction_text"
+                        text _("Click on a square to shoot"):
+                            style "mas_battleship_instruction_text"
 
         if not game.is_in_preparation():
             frame:
-                background None
-                padding (0, 0, 0, 0)
-                # HACK: without ymaximum this frame keeps expanding, even though it knows its children size and had yfill False
-                # probably a bug in renpy
-                ymaximum 0
-                yfill False
-                xanchor 0.0
-                xpos 0.0
+                style "mas_battleship_scoreboard_frame"
 
                 frame:
-                    xanchor 0.0
-                    xpos 0.0
-                    xminimum 132
+                    style "mas_battleship_player_score_frame"
 
                     vbox:
                         python:
                             ph = game.get_player_hits_count()
                             pm = game.get_player_misses_count()
-                        text "Hits: [ph]"
-                        text "Misses: [pm]"
+                        text _("Hits: [ph]"):
+                            style "mas_battleship_text"
+                        text _("Misses: [pm]"):
+                            style "mas_battleship_text"
 
                 frame:
-                    xanchor 0.0
-                    xpos 0.0
-                    xoffset mas_battleship.Battleship.GRID_WIDTH + mas_battleship.Battleship.GRID_SPACING
-                    xminimum 132
+                    style "mas_battleship_monika_score_frame"
 
                     vbox:
                         python:
                             mh = game.get_monika_hits_count()
                             mm = game.get_monika_misses_count()
-                        text "Hits: [mh]"
-                        text "Misses: [mm]"
+                        text _("Hits: [mh]"):
+                            style "mas_battleship_text"
+                        text _("Misses: [mm]"):
+                            style "mas_battleship_text"
 
 init 5 python:
     addEvent(
@@ -567,6 +641,7 @@ init -10 python in mas_battleship:
         persistent,
         Image,
         Transform,
+        ConditionSwitch,
     )
     from store.mas_utils import (
         mas_log,
@@ -649,14 +724,18 @@ init -10 python in mas_battleship:
         Event handler, render, and main logic for the game
         """
         ### Size and coords constants
+        # Single complete grid with frame aka a "ship screen" for one player, we have 2 of these
         GRID_HEIGHT = 378
         GRID_WIDTH = GRID_HEIGHT
+        # Spacing between players' "ship screens"
         GRID_SPACING = 5
 
         SQUARE_HEIGHT = 32
         SQUARE_WIDTH = SQUARE_HEIGHT
 
+        # The frame around the ship grid which has the coordinates printed
         OUTER_FRAME_THICKNESS = 20
+        # The grid between squares
         INNER_GRID_THICKNESS = 2
 
         MAIN_GRID_ORIGIN_X = 0
@@ -669,14 +748,27 @@ init -10 python in mas_battleship:
         GAME_ASSETS_FOLDER = "/mod_assets/games/battleship/"
 
         ### Grid sprites
-        GRID_BACKGROUND = Image(GAME_ASSETS_FOLDER + "grid/background.png")
-        GRID_FRAME = Image(GAME_ASSETS_FOLDER + "grid/frame.png")
-        GRID_FOREGROUND = Image(GAME_ASSETS_FOLDER + "grid/grid.png")
+        # Grid background
+        GRID_BACKGROUND = ConditionSwitch(
+            "not store.mas_globals.dark_mode", Image(GAME_ASSETS_FOLDER + "grid/background.png"),
+            "True", Image(GAME_ASSETS_FOLDER + "grid/background_d.png"),
+        )
+        # The outer frame around the squares with coordinates printed
+        GRID_FRAME = ConditionSwitch(
+            "not store.mas_globals.dark_mode", Image(GAME_ASSETS_FOLDER + "grid/frame.png"),
+            "True", Image(GAME_ASSETS_FOLDER + "grid/frame_d.png"),
+        )
+        # The grid that separates squares
+        GRID_FOREGROUND = ConditionSwitch(
+            "not store.mas_globals.dark_mode", Image(GAME_ASSETS_FOLDER + "grid/grid.png"),
+            "True", Image(GAME_ASSETS_FOLDER + "grid/grid_d.png"),
+        )
 
         # HACK: The animated sprite is blinking at the edges, probably due to incorrect blitting and pixel smudging
         # I come up with a hack: we render this layer 2px bigger and overlap its edges with the grid frame
         WATER_LAYER_OFFSET = 2
 
+        # Animated water
         WATER_LAYER = store.Transform(
             store.mas_battleship_water_transform(
                 child=Image(GAME_ASSETS_FOLDER + "water_loop.png"),
@@ -687,8 +779,14 @@ init -10 python in mas_battleship:
             size=(GRID_HEIGHT - OUTER_FRAME_THICKNESS*2 + WATER_LAYER_OFFSET*2, GRID_WIDTH - OUTER_FRAME_THICKNESS*2 + WATER_LAYER_OFFSET*2),
         )
 
+        # Not actual fow, just darker overlay for Monika's grid
+        FOG_OF_WAR = store.Solid("#32323280", xsize=GRID_WIDTH - OUTER_FRAME_THICKNESS*2, ysize=GRID_HEIGHT - OUTER_FRAME_THICKNESS*2)
+
         ### Indicators
-        SQUARE_HOVER = Image(GAME_ASSETS_FOLDER + "indicators/hover.png")
+        SQUARE_HOVER = ConditionSwitch(
+            "not store.mas_globals.dark_mode", Image(GAME_ASSETS_FOLDER + "indicators/hover.png"),
+            "True", Image(GAME_ASSETS_FOLDER + "indicators/hover_d.png"),
+        )
         SQUARE_CONFLICT = Image(GAME_ASSETS_FOLDER + "indicators/conflict.png")
         SQUARE_HIT = Image(GAME_ASSETS_FOLDER + "indicators/hit.png")
         SQUARE_MISS = Image(GAME_ASSETS_FOLDER + "indicators/miss.png")
@@ -701,10 +799,12 @@ init -10 python in mas_battleship:
             ShipType.CRUISER: Image(GAME_ASSETS_FOLDER + "ships/cruiser.png"),
             ShipType.DESTROYER: Image(GAME_ASSETS_FOLDER + "ships/destroyer.png"),
         }
+        # Used for prediction
         _SHIP_SPRITES = list(SHIP_TYPE_TO_SPRITE.itervalues())
         # Used for sunked ships
         GREYOUT_MATRIX = store.im.matrix.desaturate() * store.im.matrix.brightness(-0.25)
 
+        # Currently only support this, but technically easily extendable for custom setups
         SHIP_PRESET_CLASSIC = (
             ShipType.CARRIER,
             ShipType.BATTLESHIP,
@@ -1173,6 +1273,9 @@ init -10 python in mas_battleship:
                         x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.TRACKING_GRID_ORIGIN)
                         main_render.place(ship_sprite, x, y)
 
+
+                main_render.place(self.FOG_OF_WAR, self.TRACKING_GRID_ORIGIN_X + self.OUTER_FRAME_THICKNESS, self.TRACKING_GRID_ORIGIN_Y + self.OUTER_FRAME_THICKNESS)
+
                 # Render hits
                 hit_mark_render = renpy.render(self.SQUARE_HIT, width, height, st, at)
                 for coords in self._player.iter_hits():
@@ -1572,6 +1675,7 @@ init -10 python in mas_battleship:
                 self.GRID_FRAME,
                 self.GRID_FOREGROUND,
                 self.WATER_LAYER,
+                self.FOG_OF_WAR,
                 self.SQUARE_HOVER,
                 self.SQUARE_CONFLICT,
                 self.SQUARE_HIT,
