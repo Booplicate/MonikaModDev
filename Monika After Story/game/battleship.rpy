@@ -750,8 +750,8 @@ init -10 python in mas_battleship:
             self._phase = self.GamePhase.PREPARATION
             self._win_state = self.WinState.UNKNOWN
 
-            self._hovered_square = None
-            self._dragged_ship = None
+            self._hovered_square = None # type: tuple[int, int] | None
+            self._dragged_ship = None # type: Ship | None
             self._grid_conflicts = [] # type: list[tuple[int, int]]
             self._debug_heatmap = False
             self._debug_no_quips = False
@@ -1162,18 +1162,11 @@ init -10 python in mas_battleship:
                 x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.MAIN_GRID_ORIGIN)
                 main_render.place(ship_sprite, x, y)
 
-            # Render Monika's ships
-            if self._debug_monika_ships:
-                for ship in self._monika.iter_ships():
-                    ship_sprite = self._get_ship_sprite(ship)
-                    x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.TRACKING_GRID_ORIGIN)
-                    main_render.place(ship_sprite, x, y)
-
             # # # Render things that only relevant during the game
             if not self.is_in_preparation():
                 # Render Monika's ships
                 for ship in self._monika.iter_ships():
-                    if not ship.is_alive():
+                    if not ship.is_alive() or self._debug_monika_ships:
                         ship_sprite = self._get_ship_sprite(ship)
                         x, y = self._grid_coords_to_screen_coords(ship.bow_coords, self.TRACKING_GRID_ORIGIN)
                         main_render.place(ship_sprite, x, y)
@@ -2206,6 +2199,8 @@ init -10 python in mas_battleship:
         def get_drag_offset_from_bow(self):
             """
             Returns offset from where the player drags the ship to its bow
+
+            We could cache this, but it's not used a lot and C functions are fast enough anyway
             """
             # Calculate the vector
             offset = meth.hypot(self.bow_coords[0]-self.drag_coords[0], self.bow_coords[1]-self.drag_coords[1])
