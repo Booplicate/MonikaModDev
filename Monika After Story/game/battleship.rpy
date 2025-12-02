@@ -10,6 +10,7 @@ default persistent._mas_game_battleship_player_ship_dataset = {
     for row in range(store.mas_battleship.Grid.HEIGHT)
     for col in range(store.mas_battleship.Grid.WIDTH)
 }
+default persistent._mas_game_battleship_dataset_counter = 0
 default persistent._mas_pm_has_battleship_debug = False
 
 
@@ -40,11 +41,12 @@ label mas_battleship_show_player_dataset:
 
     python:
         tmp_game = mas_battleship.Battleship()
+        total = sum(persistent._mas_game_battleship_player_ship_dataset.itervalues())
         if show_raw:
             tmp_game._monika.heatmap = dict(persistent._mas_game_battleship_player_ship_dataset)
         else:
             tmp_game._monika.heatmap = {
-                k: round(float(v) / sum(persistent._mas_game_battleship_player_ship_dataset.itervalues()) * 100, 2)
+                k: round(float(v) / total * 100, 2)
                 for k, v in persistent._mas_game_battleship_player_ship_dataset.iteritems()
             }
         tmp_game._debug_heatmap = True
@@ -54,7 +56,7 @@ label mas_battleship_show_player_dataset:
     m ""
     hide screen mas_battleship_ui
     show monika at t11
-    $ del show_raw, tmp_game
+    $ del show_raw, tmp_game, total
     return
 
 init 5 python:
@@ -434,7 +436,7 @@ label mas_battleship_game_loop:
 
 label mas_battleship_game_end:
     python:
-        if mas_battleship.game.get_turn_count() > 0:
+        if mas_battleship.game.get_turn_count() > 1:
             mas_battleship.collect_player_data(mas_battleship.game)
         moni_wins = mas_battleship.get_monika_wins()
         player_wins = mas_battleship.get_player_wins()
@@ -624,8 +626,20 @@ init -10 python in mas_battleship:
         return round(float(get_player_wins()) / total_games, 3)
 
     def collect_player_data(game):
-        for coords in game._player.grid.iter_squares_with_ships():
-            persistent._mas_game_battleship_player_ship_dataset[coords] += 1
+        for square in game._player.grid.iter_squares_with_ships():
+            persistent._mas_game_battleship_player_ship_dataset[square] += 1
+
+        # NOTE: https://www.desmos.com/calculator/yucpu8wgux
+        # F = 0.5
+        # G = 16
+        # P = 5*1 + 4*2 + 3*3 + 2*4 = 30
+        # f0 = p0
+        # fn+1 = F * (fn + P*G)
+        persistent._mas_game_battleship_dataset_counter += 1
+        if persistent._mas_game_battleship_dataset_counter >= 16:
+            persistent._mas_game_battleship_dataset_counter = 0
+            for square, value in persistent._mas_game_battleship_player_ship_dataset.iteritems():
+                persistent._mas_game_battleship_player_ship_dataset[square] = int(value * 0.5)
 
 
     class Battleship(renpy.display.core.Displayable):
@@ -1805,8 +1819,8 @@ init -10 python in mas_battleship:
 
             IN:
                 ship - Ship - a ship to place
-                weights - dict[tuple[int, int], float] | None - weights for each square of the grid,
-                    this makes it possible to make some square more or les desirable for placement
+                weights - dict[tuple[int, int], int] | None - weights for each square of the grid,
+                    this makes it possible to make some square more or less desirable for placement
 
             OUT:
                 tuple[int, int] | None - coordinates for the bow of this ship
@@ -1814,7 +1828,7 @@ init -10 python in mas_battleship:
             """
             ship_length = ship.length
             # List with all free lines where we could place this ship on and their weights
-            available_lines_and_weights = [] # type: list[ tuple[ list[tuple[int, int]], float ] ]
+            available_lines_and_weights = [] # type: list[ tuple[ list[tuple[int, int]], int ] ]
             # Swap columns with rows for horizontal lines
             should_mirror_coords = Ship.Orientation.is_horizontal(ship.orientation)
 
@@ -1829,10 +1843,10 @@ init -10 python in mas_battleship:
                     available_lines_and_weights
                     weights
                 """
-                line_weight = 1.0
+                line_weight = 1
                 if weights is not None:
                     for square in line:
-                        line_weight *= weights[square]
+                        line_weight += weights[square]
                 available_lines_and_weights.append((line, line_weight))
 
             for column in range(self.WIDTH):
@@ -1878,11 +1892,11 @@ init -10 python in mas_battleship:
 
             else:
                 # List of points from the picked line we can start at and their weight
-                offsets_and_weights = [] # list[ tuple[ tuple[int, int], float ] ]
+                offsets_and_weights = [] # list[ tuple[ tuple[int, int], int ] ]
                 # Calculate weight for offset 0
-                weight = 1.0
+                weight = 1
                 for i in range(ship_length):
-                    weight *= weights[line[i]]
+                    weight += weights[line[i]]
                 offsets_and_weights.append((0, weight))
 
                 # Calculate weights for other offsets using 2 pointers
@@ -1967,8 +1981,8 @@ init -10 python in mas_battleship:
 
             IN:
                 ships - list[Ship] - ships to place
-                weights - dict[tuple[int, int], float] | None - weights for each square of the grid,
-                    this makes it possible to make some square more or les desirable for placement
+                weights - dict[tuple[int, int], int] | None - weights for each square of the grid,
+                    this makes it possible to make some square more or less desirable for placement
             """
             orientations = Ship.Orientation.get_all()
 
@@ -2617,7 +2631,7 @@ init -10 python in mas_battleship:
                     _("That's unfortunate..."),
                     _("Unlucky..."),
                     _("You got this one."),
-                    _("{i}*sigh*{/i}{w=0.2} Sunk!"),
+                    _("{i}*Sigh*{/i}...{w=0.2} Sunk!"),
                 ),
             ),
         )
@@ -2661,12 +2675,16 @@ init -10 python in mas_battleship:
             OUT:
                 bool
             """
-            if (
-                # 20% if didn't say anything last 6 turns
-                (self._turns_without_quip >= 6 and random.random() > 0.2)
-                # 10% otherwise
-                or random.random() > 0.1
-            ):
+            # 15% if didn't say anything last 6 turns
+            if self._turns_without_quip >= 6:
+                chance = 0.15
+            # 3% if did a quip last turn
+            elif self._turns_without_quip == 0:
+                chance = 0.03
+            # 7% otherwise
+            else:
+                chance = 0.07
+            if random.random() > chance:
                 self._turns_without_quip += 1
                 return False
 
@@ -2797,10 +2815,10 @@ init -10 python in mas_battleship:
             Constructor
 
             IN:
-                dataset - dict[tuple[int, int], float] | None - dataset of player grid
+                dataset - dict[tuple[int, int], int] | None - dataset of player grid
             """
             super(AIPlayer, self).__init__()
-            self.dataset = dataset # type: dict[tuple[int, int], float] | None
+            self.dataset = dataset # type: dict[tuple[int, int], int] | None
             self.heatmap = {} # type: dict[tuple[int, int], int]
             # High weight means we rely more on where player puts their ships
             # and rely less on the current state of the board (skip misses/hits/where a ship truly fits)
@@ -2875,7 +2893,7 @@ init -10 python in mas_battleship:
             color_map = {}
             for coords, temp in self.heatmap.iteritems():
                 if max_temp > 0:
-                    fraction = float(temp) / float(max_temp)
+                    fraction = float(temp) / max_temp
                 else:
                     fraction = 0.0
                 # red > yellow
