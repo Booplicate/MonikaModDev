@@ -2,6 +2,7 @@
 # # # MAS BATTLESHPS YO
 
 # GAME PERSISTENT VARIABLES
+# TODO: score
 # default persistent._mas_game_battleship_best_score = {"Monika": 0, "Player": 0}
 default persistent._mas_game_battleship_wins = {"Monika": 0, "Player": 0}
 default persistent._mas_game_battleship_abandoned = 0
@@ -374,7 +375,7 @@ screen mas_battleship_ui(game):
             add game:
                 xalign 1.0
 
-            if game.is_in_preparation():
+            if game.is_in_preparation() or game.did_player_cancel_game():
                 frame:
                     style "mas_battleship_instruction_frame"
 
@@ -392,7 +393,7 @@ screen mas_battleship_ui(game):
                         text _("Click on a square to shoot"):
                             style "mas_battleship_instruction_text"
 
-        if not game.is_in_preparation():
+        if not game.is_in_preparation() and not game.did_player_cancel_game():
             frame:
                 style "mas_battleship_scoreboard_frame"
 
@@ -967,6 +968,9 @@ init -10 python in mas_battleship:
         def did_player_giveup(self):
             return self._win_state == self.WinState.PLAYER_GAVEUP
 
+        def did_player_cancel_game(self):
+            return self.did_player_giveup() and self.get_turn_count() == 0
+
 
         def get_player_hits_count(self):
             return self._player.total_hits()
@@ -1299,7 +1303,7 @@ init -10 python in mas_battleship:
             main_render.subpixel_blit(grid_foreground_render, self.MAIN_GRID_ORIGIN)
 
             # Render Monika's grid only during the game phase
-            if self.is_in_action() or self.is_done():
+            if self.is_in_action() or (self.is_done() and not self.did_player_cancel_game()):
                 main_render.subpixel_blit(grid_background_render, self.TRACKING_GRID_ORIGIN)
                 main_render.subpixel_blit(
                     water_layer_render,
