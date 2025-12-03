@@ -2,8 +2,20 @@
 # # # MAS BATTLESHPS YO
 
 # GAME PERSISTENT VARIABLES
-# TODO: score
-# default persistent._mas_game_battleship_best_score = {"Monika": 0, "Player": 0}
+default persistent._mas_game_battleship_stats = {
+    "Monika": {
+        "total_shots": 0,
+        "total_hits": 0,
+        "best_attack": store.mas_battleship.Grid.WIDTH * store.mas_battleship.Grid.HEIGHT,
+        "best_defence": 0,
+    },
+    "Player": {
+        "total_shots": 0,
+        "total_hits": 0,
+        "best_attack": store.mas_battleship.Grid.WIDTH * store.mas_battleship.Grid.HEIGHT,
+        "best_defence": 0,
+    },
+}
 default persistent._mas_game_battleship_wins = {"Monika": 0, "Player": 0}
 default persistent._mas_game_battleship_abandoned = 0
 default persistent._mas_game_battleship_player_ship_dataset = {
@@ -567,6 +579,8 @@ label mas_battleship_game_end:
     python:
         if mas_battleship.game.get_turn_count() > 1:
             mas_battleship.collect_player_data(mas_battleship.game)
+        mas_battleship.update_stats(mas_battleship.game)
+
         moni_wins = mas_battleship.get_monika_wins()
         player_wins = mas_battleship.get_player_wins()
         rng = random.random()
@@ -686,6 +700,7 @@ init -20:
             repeat
 
 init -10 python in mas_battleship:
+    import datetime
     import random
     import pygame
     import math as meth
@@ -728,6 +743,75 @@ init -10 python in mas_battleship:
         CRUISER = 3
         DESTROYER = 4
 
+
+    def _update_accuracy(game):
+        persistent._mas_game_battleship_stats["Monika"]["total_shots"] += game.get_monika_hits_count() + game.get_monika_misses_count()
+        persistent._mas_game_battleship_stats["Monika"]["total_hits"] += game.get_monika_hits_count()
+        persistent._mas_game_battleship_stats["Player"]["total_shots"] += game.get_player_hits_count() + game.get_player_misses_count()
+        persistent._mas_game_battleship_stats["Player"]["total_hits"] += game.get_player_hits_count()
+
+    def _update_best_monika_game(game):
+        if not game.is_monika_winner():
+            return
+
+        attack = persistent._mas_game_battleship_stats["Monika"]["best_attack"]
+        new_attack = game.get_monika_hits_count() + game.get_monika_misses_count()
+        if new_attack < attack:
+            persistent._mas_game_battleship_stats["Monika"]["best_attack"] = new_attack
+
+        defence = persistent._mas_game_battleship_stats["Monika"]["best_defence"]
+        new_defence = game._monika.get_total_ship_health_remaining()
+        if new_defence > defence:
+            persistent._mas_game_battleship_stats["Monika"]["best_defence"] = new_defence
+
+    def _update_best_player_game(game):
+        if not game.is_player_winner():
+            return
+
+        attack = persistent._mas_game_battleship_stats["Player"]["best_attack"]
+        new_attack = game.get_player_hits_count() + game.get_player_misses_count()
+        if new_attack < attack:
+            persistent._mas_game_battleship_stats["Player"]["best_attack"] = new_attack
+
+        defence = persistent._mas_game_battleship_stats["Player"]["best_defence"]
+        new_defence = game._player.get_total_ship_health_remaining()
+        if new_defence > defence:
+            persistent._mas_game_battleship_stats["Player"]["best_defence"] = new_defence
+
+    def update_stats(game):
+        _update_accuracy(game)
+        _update_best_monika_game(game)
+        _update_best_player_game(game)
+
+    def _get_accuracy_for(key):
+        if key not in ("Monika", "Player"):
+            return 0.0
+        shots = persistent._mas_game_battleship_stats[key]["total_shots"]
+        hits = persistent._mas_game_battleship_stats[key]["total_hits"]
+        if shots == 0:
+            return 0.0
+        return round(float(hits) / shots, 3)
+
+    def get_monika_accuracy():
+        return _get_accuracy_for("Monika")
+
+    def get_player_accuracy():
+        return _get_accuracy_for("Player")
+
+    def _get_best_scores_for(key):
+        if key not in ("Monika", "Player"):
+            return (Grid.WIDTH * Grid.HEIGHT, 0)
+
+        return (
+            persistent._mas_game_battleship_stats[key]["best_attack"],
+            persistent._mas_game_battleship_stats[key]["best_defence"],
+        )
+
+    def get_best_monika_scores():
+        return _get_best_scores_for("Monika")
+
+    def get_best_player_scores():
+        return _get_best_scores_for("Player")
 
     def increment_monika_wins():
         persistent._mas_game_battleship_wins["Monika"] += 1
@@ -2267,6 +2351,10 @@ init -10 python in mas_battleship:
 
             self._orientation = value
 
+        @property
+        def health(self):
+            return self._health
+
         def is_alive(self):
             return self._health > 0
 
@@ -2521,6 +2609,9 @@ init -10 python in mas_battleship:
                     counter += 1
 
             return counter
+
+        def get_total_ship_health_remaining(self):
+            return sum(ship.health for ship in self.iter_ships())
 
         def has_lost_all_ships(self):
             """
