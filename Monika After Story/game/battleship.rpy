@@ -420,6 +420,79 @@ screen mas_battleship_ui(game):
                         text _("Misses: [mm]"):
                             style "mas_battleship_text"
 
+
+init 5 python:
+    addEvent(
+        Event(
+            persistent.event_database,
+            eventlabel="mas_unlock_battleship",
+            conditional=(
+                "store.mas_xp.level() >= 10 "
+                "and store.mas_games._total_games_played() > {0}"
+            ).format(random.randint(55, 75)),
+            action=EV_ACT_QUEUE,
+            aff_range=(mas_aff.AFFECTIONATE, None),
+        )
+    )
+
+label mas_unlock_battleship:
+    m 1eub "Hey, [player]..."
+    m 1eua "I have some good news."
+    m 3eub "Since you seem to enjoy playing games with me, I decided to make a new one for us to play."
+    m 1esc "I've been working on it for quite a while, {w=0.3}{nw}"
+    extend 1rkc "but then procrastination hit me..."
+    m 1ekd "It turned out to be harder than I initially thought."
+    m 1eub "But like I said, I have some {i}good{/i} news for you!"
+    m 3hub "Seeing how you always come to visit me and how we spend time together really motivated me to finish it."
+    m 4wub "So, the game I made is called Battleship!"
+
+    m 1eta "You've surely heard of it, right? {w=0.1}{nw}"
+    extend 3hub "It's probably over a century old now, ahaha!{nw}"
+    $ _history_list.pop()
+    menu:
+        m "You've surely heard of it, right? It's probably over a century old now, ahaha!{fast}"
+        "Yes.":
+            m 1eua "Nice! Then you know how to play."
+            m 3eub "Before computers, people used to draw their ships on a piece of paper, {w=0.1}{nw}"
+            extend 3rusdla "but don't worry, my version is more advanced, ehehe~"
+
+        "No.":
+            m 1euc "Oh..."
+            m 3eud "Well, the game is pretty straightforward. It's about guessing where the other player has placed their ships."
+            m 1eua "At the start of the game, you place your ships on the board."
+            m 3eub "Before computers, people used to draw their ships on a piece of paper, {w=0.1}{nw}"
+            extend 3rusdla "but don't worry, my version is more advanced, ehehe~"
+            m 1eua "Once both players have positioned their ships, they start calling out shots."
+            m 1eub "The first person says the square they want to check, and the other person responds with either 'Hit!' or 'Miss!'"
+            m 3eua "Whoever destroys all the ships before losing theirs wins the game."
+
+    m 7hub "I can't wait for you to try it out!"
+    m 2husdlb "{cps=*2}Hopefully there's not too many bugs left, ahaha!{/cps}{nw}"
+
+    python:
+        _history_list.pop()
+        mas_moni_idle_disp.force_by_code("2hua", duration=6, redraw=False, skip_dissolve=True)
+        mas_moni_idle_disp.force_by_code("2eua", duration=3, clear=False, redraw=False, skip_dissolve=True)
+        mas_moni_idle_disp.force_by_code("1eua", duration=18, clear=False, skip_dissolve=True)
+        mas_unlockGame("battleship")
+    return
+
+init 5 python:
+    addEvent(
+        Event(
+            persistent._mas_game_database,
+            eventlabel="mas_battleship",
+            prompt="Battleship",
+            aff_range=(mas_aff.AFFECTIONATE, None)
+        ),
+        code="GME",
+        restartBlacklist=True
+    )
+
+label mas_battleship:
+    call mas_battleship_game_start
+    return
+
 init 5 python:
     addEvent(
         Event(
@@ -432,6 +505,7 @@ init 5 python:
             unlocked=True,
         )
     )
+
 label mas_battleship_game_start:
     window hide
     $ HKBHideButtons()
@@ -451,26 +525,6 @@ label mas_battleship_game_start:
 
     pause 0.5
 
-    # if mas_battleship.get_total_games() <= 10:
-    #     m 3eub "You can move the ships around, just click and drag them."
-    #     if mas_battleship.get_total_games() == 0 and mas_battleship.get_player_surrenders() == 0:
-    #         m 1eua "If you need to rotate a ship...{w=0.3}{nw}"
-    #         extend 1lta "let me see...{w=0.2}{nw}"
-    #         $ _history_list.pop()
-    #         m 3hkb "If you need to rotate a ship...{fast}press {i}R{/i} or {i}Shift{/i}+{i}R{/i} while your mouse is over the ship."
-
-    #     else:
-    #         m 1eua "If you need to rotate a ship{w=0.1} {nw}"
-    #         extend 3eub "press {i}R{/i} or {i}Shift{/i}+{i}R{/i} while your mouse is over the ship."
-
-    #     m 1eua "Make sure the ships don't intersect or touch."
-    #     m 1eub "There's also this {i}Randomize{/i} button to reposition your ships."
-    #     m 3eua "Once all set, press the {i}Ready{/i} button."
-    #     m 1eua "Now let's draw lots."
-
-    # FALL THROUGH
-
-# label mas_battleship_pick_first_player:
     $ mas_battleship.game.pick_first_player()
     $ rng = random.random()
     if mas_battleship.game.is_player_turn():
@@ -578,6 +632,7 @@ label mas_battleship_game_end:
 
             "Sure.":
                 show monika 1hua
+                $ mas_battleship.visit_game_ev()
                 jump mas_battleship_game_start
 
             "Maybe later.":
@@ -717,6 +772,12 @@ init -10 python in mas_battleship:
             persistent._mas_game_battleship_dataset_counter = 0
             for square, value in persistent._mas_game_battleship_player_ship_dataset.iteritems():
                 persistent._mas_game_battleship_player_ship_dataset[square] = int(value * 0.5)
+
+    def visit_game_ev():
+        with store.MAS_EVL("mas_battleship") as game_ev:
+            if game_ev.unlocked:
+                game_ev.shown_count += 1
+                game_ev.last_seen = datetime.datetime.now()
 
 
     class Battleship(renpy.display.core.Displayable):
