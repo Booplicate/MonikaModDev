@@ -1,5 +1,5 @@
-
 # # # MAS BATTLESHPS YO
+
 
 # GAME PERSISTENT VARIABLES
 default persistent._mas_game_battleship_stats = {
@@ -27,236 +27,7 @@ default persistent._mas_game_battleship_dataset_counter = 0
 default persistent._mas_pm_has_battleship_debug = False
 
 
-init 5 python:
-    addEvent(
-        Event(
-            persistent.event_database,
-            eventlabel="mas_battleship_show_player_dataset",
-            category=["dev"],
-            prompt="SHOW BATTLESHIP PLAYER DATASET",
-            rules={"keep_idle_exp": None},
-            pool=True,
-            unlocked=True,
-        )
-    )
-label mas_battleship_show_player_dataset:
-    $ show_raw = False
-    m 3eua "Raw or probabilities?{nw}"
-    $ _history_list.pop()
-    menu:
-        m "Raw or probabilities?{fast}"
-
-        "Raw.":
-            $ show_raw = True
-
-        "Probabilities":
-            pass
-
-    python:
-        tmp_game = mas_battleship.Battleship()
-        total = sum(persistent._mas_game_battleship_player_ship_dataset.itervalues())
-        if show_raw:
-            tmp_game._monika.heatmap = dict(persistent._mas_game_battleship_player_ship_dataset)
-        else:
-            tmp_game._monika.heatmap = {
-                k: round(float(v) / total * 100, 2)
-                for k, v in persistent._mas_game_battleship_player_ship_dataset.iteritems()
-            }
-        tmp_game._debug_heatmap = True
-
-    show monika 1eua at t31
-    show screen mas_battleship_ui(tmp_game)
-    m ""
-    hide screen mas_battleship_ui
-    show monika at t11
-    $ del show_raw, tmp_game, total
-    return
-
-init 5 python:
-    addEvent(
-        Event(
-            persistent.event_database,
-            eventlabel="mas_battleship_generate_heatmap_using_monte_carlo",
-            category=["dev"],
-            prompt="GENERATE BATTLESHIP HEATMAP USING MONTE CARLO",
-            rules={"keep_idle_exp": None},
-            pool=True,
-            unlocked=True,
-        )
-    )
-label mas_battleship_generate_heatmap_using_monte_carlo:
-    $ iterations = store.mas_utils.tryparseint(
-        renpy.input(
-            "How many iterations would you like to run? Default 10000.",
-            allow=numbers_only,
-            length=5,
-        ).strip("\t\n\r"),
-        10000,
-    )
-    if iterations < 1:
-        return
-
-    $ use_player_data = False
-    m 3eua "Should I use player dataset to influence the placement?{nw}"
-    $ _history_list.pop()
-    menu:
-        m "Should I use player dataset to influence the placement?{fast}"
-
-        "Yes.":
-            $ use_player_data = True
-
-        "No, just random.":
-            pass
-
-    m 1dsa "The game may hang, bear with me...{nw}"
-
-    python:
-        tmp_game = mas_battleship.Battleship()
-        counter = {
-            (x, y): 0
-            for y in range(mas_battleship.Grid.HEIGHT)
-            for x in range(mas_battleship.Grid.WIDTH)
-        }
-
-        for _unused in range(iterations):
-            tmp_game.build_and_place_player_ships(use_player_data)
-
-            for coords in tmp_game._player.grid.iter_squares_with_ships():
-                counter[coords] += 1
-
-        total = sum(counter.itervalues())
-        tmp_game._monika.heatmap = {
-            k: round(float(v) / total * 100, 2)
-            for k, v in counter.iteritems()
-        }
-        tmp_game._debug_heatmap = True
-        tmp_game._player.grid.clear()
-
-    show monika 1eua at t31
-    show screen mas_battleship_ui(tmp_game)
-    m ""
-    hide screen mas_battleship_ui
-    show monika at t11
-
-    m 3eua "Repeat?{nw}"
-    $ _history_list.pop()
-    menu:
-        m "Repeat?{fast}"
-
-        "Yes.":
-            jump mas_battleship_generate_heatmap_using_monte_carlo
-
-        "No.":
-            pass
-
-    $ del iterations, use_player_data, tmp_game, counter, total
-    return
-
-init 5 python:
-    addEvent(
-        Event(
-            persistent.event_database,
-            eventlabel="mas_battleship_simulate_game",
-            category=["dev"],
-            prompt="SIMULATE BATTLESHIP GAME",
-            rules={"keep_idle_exp": None},
-            pool=True,
-            unlocked=True,
-        )
-    )
-label mas_battleship_simulate_game:
-    show monika 1eua
-    $ iterations = store.mas_utils.tryparseint(
-        renpy.input(
-            "How many iterations would you like to run? Default 10.",
-            allow=numbers_only,
-            length=5,
-        ).strip("\t\n\r"),
-        10,
-    )
-    if iterations < 1:
-        return
-
-    $ buttons = [
-        ("Show boards (slower)?", "show_boards", False, True, False),
-        ("Fast turns?", "fast_turns", True, True, False),
-        ("Show Monika's ship (slower)?", "show_monika_ships", False, True, False),
-        ("Show heatmap (slower)?", "show_heatmap", False, True, False),
-        ("Should test agent position ships using dataset?", "agent_uses_dataset", False, True, False),
-        ("Should Monika use dataset for shots?", "monika_uses_dataset", False, True, False),
-    ]
-    call screen mas_check_scrollable_menu(buttons, mas_ui.SCROLLABLE_MENU_TXT_MEDIUM_AREA, mas_ui.SCROLLABLE_MENU_XALIGN, selected_button_prompt="Run", return_all=True)
-    python:
-        del buttons
-        settings = _return
-
-        test_agent_wins = 0
-        monika_wins = 0
-
-    if not settings["show_boards"]:
-        m 1dsa "The game may hang, bear with me...{nw}"
-
-label mas_battleship_simulate_game.loop:
-    python:
-        iterations -= 1
-        tmp_game = mas_battleship.BattleshipAITest()
-        if not settings["monika_uses_dataset"]:
-            tmp_game._monika.dataset = None
-        tmp_game._debug_heatmap = settings["show_heatmap"]
-        tmp_game._debug_no_quips = True
-        tmp_game._debug_no_pause = settings["fast_turns"]
-        tmp_game._debug_monika_ships = settings["show_monika_ships"]
-        tmp_game.build_and_place_monika_ships()
-        tmp_game.build_and_place_player_ships(settings["agent_uses_dataset"])
-        tmp_game.pick_first_player()
-        tmp_game.set_phase_action()
-
-    if settings["show_boards"]:
-        show screen mas_battleship_ui(tmp_game)
-        if not test_agent_wins and not monika_wins:
-            show monika 1eua at t31
-            pause 0.5
-
-    python:
-        while not tmp_game.is_done():
-            tmp_game.game_loop()
-
-    if tmp_game.is_player_winner():
-        $ test_agent_wins += 1
-
-    elif tmp_game.is_monika_winner():
-        $ monika_wins += 1
-
-    else:
-        m 1esc "We're in an invalid state, it says player gave up. Aborting test."
-        $ iterations = 0
-
-    if iterations > 0:
-        if settings["show_boards"]:
-            pause 0.05
-        jump mas_battleship_simulate_game.loop
-
-    if settings["show_boards"]:
-        hide screen mas_battleship_ui
-        show monika at t11
-
-    m 1esa "We're done, statistics: test agent wins [test_agent_wins], my wins [monika_wins]."
-
-    m 3eua "Repeat?{nw}"
-    $ _history_list.pop()
-    menu:
-        m "Repeat?{fast}"
-
-        "Yes.":
-            jump mas_battleship_simulate_game
-
-        "No.":
-            pass
-
-    $ del iterations, settings, test_agent_wins, monika_wins, tmp_game
-    return
-
-
+# GAME SCREEN STYLES
 style mas_battleship_main_vbox is vbox:
     xalign 1.0
     xoffset -mas_battleship.Battleship.GRID_SPACING
@@ -329,16 +100,13 @@ style mas_battleship_monika_score_frame is frame:
     xoffset mas_battleship.Battleship.GRID_WIDTH + mas_battleship.Battleship.GRID_SPACING
     xminimum 132
 
+
+# GAME SCREEN
 screen mas_battleship_ui(game):
     layer "minigames"
 
     vbox:
         style "mas_battleship_main_vbox"
-
-        #         vbox:
-        #             text "Score: 700-700"
-        #             text "Grade: 10000"
-        #             text "Best Grade: 100000"
 
         vbox:
             style "mas_battleship_top_vbox"
@@ -434,91 +202,7 @@ screen mas_battleship_ui(game):
                             style "mas_battleship_text"
 
 
-init 5 python:
-    addEvent(
-        Event(
-            persistent.event_database,
-            eventlabel="mas_unlock_battleship",
-            conditional=(
-                "store.mas_xp.level() >= 10 "
-                "and store.mas_games._total_games_played() > {0}"
-            ).format(random.randint(55, 75)),
-            action=EV_ACT_QUEUE,
-            aff_range=(mas_aff.AFFECTIONATE, None),
-        )
-    )
-
-label mas_unlock_battleship:
-    m 1eub "Hey, [player]..."
-    m 1eua "I have some good news."
-    m 3eub "Since you seem to enjoy playing games with me, I decided to make a new one for us to play."
-    m 1esc "I've been working on it for quite a while, {w=0.3}{nw}"
-    extend 1rkc "but then procrastination hit me..."
-    m 1ekd "It turned out to be harder than I initially thought."
-    m 1eub "But like I said, I have some {i}good{/i} news for you!"
-    m 3hub "Seeing how you always come to visit me and how we spend time together really motivated me to finish it."
-    m 4wub "So, the game I made is called Battleship!"
-
-    m 1eta "You've surely heard of it, right? {w=0.1}{nw}"
-    extend 3hub "It's probably over a century old now, ahaha!{nw}"
-    $ _history_list.pop()
-    menu:
-        m "You've surely heard of it, right? It's probably over a century old now, ahaha!{fast}"
-        "Yes.":
-            m 1eua "Nice! Then you know how to play."
-            m 3eub "Before computers, people used to draw their ships on a piece of paper, {w=0.1}{nw}"
-            extend 3rusdla "but don't worry, my version is more advanced, ehehe~"
-
-        "No.":
-            m 1euc "Oh..."
-            m 3eud "Well, the game is pretty straightforward. It's about guessing where the other player has placed their ships."
-            m 1eua "At the start of the game, you place your ships on the board."
-            m 3eub "Before computers, people used to draw their ships on a piece of paper, {w=0.1}{nw}"
-            extend 3rusdla "but don't worry, my version is more advanced, ehehe~"
-            m 1eua "Once both players have positioned their ships, they start calling out shots."
-            m 1eub "The first person says the square they want to check, and the other person responds with either 'Hit!' or 'Miss!'"
-            m 3eua "Whoever destroys all the ships before losing theirs wins the game."
-
-    m 7hub "I can't wait for you to try it out!"
-    m 2husdlb "{cps=*2}Hopefully there's not too many bugs left, ahaha!{/cps}{nw}"
-
-    python:
-        _history_list.pop()
-        mas_moni_idle_disp.force_by_code("2hua", duration=6, redraw=False, skip_dissolve=True)
-        mas_moni_idle_disp.force_by_code("2eua", duration=3, clear=False, redraw=False, skip_dissolve=True)
-        mas_moni_idle_disp.force_by_code("1eua", duration=18, clear=False, skip_dissolve=True)
-        mas_unlockGame("battleship")
-    return
-
-init 5 python:
-    addEvent(
-        Event(
-            persistent._mas_game_database,
-            eventlabel="mas_battleship",
-            prompt="Battleship",
-            aff_range=(mas_aff.AFFECTIONATE, None)
-        ),
-        code="GME",
-        restartBlacklist=True
-    )
-
-label mas_battleship:
-    call mas_battleship_game_start
-    return
-
-init 5 python:
-    addEvent(
-        Event(
-            persistent.event_database,
-            eventlabel="mas_battleship_game_start",
-            category=["dev"],
-            prompt="START BATTLESHIP DEMO",
-            rules={"keep_idle_exp": None},
-            pool=True,
-            unlocked=True,
-        )
-    )
-
+# GAME FLOW LABELS
 label mas_battleship_game_start:
     window hide
     $ HKBHideButtons()
@@ -667,6 +351,7 @@ label mas_battleship_game_end:
     return
 
 
+# GAME IMPLEMENTATION
 init -30 python in mas_battleship:
     import math as meth
 
@@ -706,7 +391,10 @@ init -10 python in mas_battleship:
     import math as meth
     import itertools
 
-    from collections import OrderedDict, Counter
+    from collections import (
+        OrderedDict,
+        Counter,
+    )
     from renpy import store
     from store import (
         persistent,
@@ -3453,67 +3141,3 @@ init -10 python in mas_battleship:
             self._update_heatmap(opponent.grid)
             max_temp_coords = self._get_max_temp_squares()
             return self._pick_best_square_from_list(max_temp_coords)
-
-
-    class TestAgentPlayer(AIPlayer):
-        """
-        AI player for test games vs Monika
-        """
-        def __init__(self):
-            super(TestAgentPlayer, self).__init__(None)
-
-        # def _pick_best_square_from_list(self, squares):
-        #     if len(squares) == 1:
-        #         return squares[0]
-        #     return random.choice(squares)
-
-    class BattleshipAITest(Battleship):
-        """
-        Subclass for AI tests
-        """
-        def __init__(self):
-            super(BattleshipAITest, self).__init__()
-            self._player = TestAgentPlayer()
-
-        def handle_player_turn(self):
-            if not self.is_in_action():
-                log_err("called BattleshipAITest.handle_player_turn while in {} phase, the game hasn't started yet".format(self._phase))
-                return
-
-            if self.is_monika_turn():
-                return
-
-            square = self._player.pick_square_for_attack(self._monika)
-            if square is None:
-                log_err("AIPlayer.pick_square_for_attack returned None")
-                self._switch_turn()
-                return
-
-            if self._player.has_shot_at(square):
-                log_err("AIPlayer.pick_square_for_attack returned a square that test agent already shot at")
-                self._switch_turn()
-                return
-
-            if not self._debug_no_pause:
-                renpy.pause(self.MONIKA_TURN_DURATION)
-
-            self.register_player_shot(square)
-            self._switch_turn()
-
-        def render(self, width, height, st, at):
-            main_render = super(BattleshipAITest, self).render(width, height, st, at)
-
-            if self._debug_heatmap:
-                for coords, color in self._player.get_heatmap_colors().iteritems():
-                    color = color.replace_opacity(0.8)
-                    heat_overlay = store.Solid(color, xsize=32, ysize=32)
-                    x, y = self._grid_coords_to_screen_coords(coords, self.TRACKING_GRID_ORIGIN)
-                    color_render = renpy.render(heat_overlay, width, height, st, at)
-                    main_render.subpixel_blit(color_render, (x, y))
-
-                    temp = str(round(self._player.heatmap[coords], 3))
-                    txt = store.Text(temp, color=(0, 0, 0, 255), size=12, outlines=())
-                    txt_render = renpy.render(txt, width, height, st, at)
-                    main_render.subpixel_blit(txt_render, (x, y))
-
-            return main_render
